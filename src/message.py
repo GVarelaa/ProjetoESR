@@ -1,9 +1,10 @@
 import pickle
 
 class Message:
-    def __init__(self, msg_type, flags, data):
+    def __init__(self, msg_type, flags, jumps, data):
         self.type = msg_type
         self.flags = flags
+        self.jumps = jumps
         self.data = data
     
     def __str__(self):
@@ -15,7 +16,6 @@ class Message:
     def serialize(self):
         # type - 1 byte
         type_bytes = self.type.to_bytes(1, 'big')
-        
         data_bytes = pickle.dumps(self.data)
 
         return type_bytes + data_bytes
@@ -24,5 +24,5 @@ class Message:
     def deserialize(bytes):
         data = pickle.loads(bytes[1:])
 
-        return Message(int(bytes[0]), [], data)
+        return Message(int(bytes[0]), [], [], data)
     
