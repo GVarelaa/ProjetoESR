@@ -3,7 +3,7 @@ import socket
 import sys
 import threading
 import argparse
-from server import Server
+from node import Node
 
 def main():
     parser = argparse.ArgumentParser()
@@ -11,20 +11,20 @@ def main():
     parser.add_argument("-s", help="bootstrapper ip address")
     parser.add_argument("-rp", help="bootstrapper ip address")
     args = parser.parse_args()
-    server = None
+    node = None
     
     if args.b:
-        server = Server(0, {}, file=args.b)
+        node = Node(0, {}, file=args.b)
     
     elif args.s:
-        server = Server(1, {}, bootstrapper_addr=args.s)
-        server.request_neighbours()
+        node = Node(1, {}, bootstrapper_addr=args.s)
+        node.request_neighbours()
     
     else:
-        server = Server(2, {}, bootstrapper_addr=args.rp)
-        server.request_neighbours()
+        node = Node(2, {}, bootstrapper_addr=args.rp)
+        node.request_neighbours()
 
-    threading.Thread(target=server.control_service, args=()).start()
+    threading.Thread(target=node.control_service, args=()).start()
 
 if __name__ == "__main__":
     main()

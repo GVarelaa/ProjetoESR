@@ -1,28 +1,44 @@
 import pickle
+from datetime import datetime
 
 class Message:
-    def __init__(self, msg_type, flags, jumps, data):
+    def __init__(self, msg_type, timestamp=None, flags=None, jumps=None):
+        # Header
         self.type = msg_type
         self.flags = flags
+        # Data
+        self.timestamp = timestamp
         self.jumps = jumps
-        self.data = data
+
     
     def __str__(self):
-        return f"type: {self.type}, data: {self.data}"
+        return f"type: {self.type}"
 
     def __repr__(self):
-        return f"type: {self.type}, data: {self.data}"
+        return f"type: {self.type}"
 
     def serialize(self):
         # type - 1 byte
-        type_bytes = self.type.to_bytes(1, 'big')
-        data_bytes = pickle.dumps(self.data)
+        byte_array = bytearray()
+        
+        byte_array.append(self.type.to_bytes(1, 'big'))
 
-        return type_bytes + data_bytes
+        timestamp = self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        byte_array.append(len(timestamp).to_bytes(1, 'big'))
+        byte_array.append(timestamp.encode('utf-8'))
+        
+        byte_array.append(pickle.dumps(self.jumps))
+
+        return byte_array
 
     @staticmethod
     def deserialize(bytes):
-        data = pickle.loads(bytes[1:])
+        msg_type = int(bytes[0])
 
-        return Message(int(bytes[0]), [], [], data)
+        timestamp_num = int(bytes[1])
+        timestamp = bytes[2:2+timestamp_num].decode('utf-8')
+
+        jumps = pickle.loads(bytes[2+timestamp_num+1])
+
+        return Message(msg_type, timestamp=timestamp, jumps=jumps)
     
