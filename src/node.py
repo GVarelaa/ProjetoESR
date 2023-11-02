@@ -31,21 +31,25 @@ class Node:
         decoded_msg = Message.deserialize(msg)
 
         if decoded_msg.type == 1:
-            self.neighbours = decoded_msg.data["neighbours"]
-            self.interfaces = decoded_msg.data["interfaces"]
+            self.neighbours = decoded_msg.neighbours
+            self.interfaces = decoded_msg.interfaces
+
+        print(self.neighbours)
 
 
     def neighbours_worker(self, addr):
         for key, value in self.nodes.items():
             if addr[0] in value["interfaces"]: # é esse o servidor
-                msg = Message(1, data=value)
+                msg = Message(1, nr_neighbours=len(value["neighbours"]), nr_interfaces=len(value["interfaces"]), neighbours=value["neighbours"], interfaces=value["interfaces"])
                 self.control_socket.sendto(msg.serialize(), addr)
             
 
     def subscription_worker(self, addr, msg):
-        if self.node.type != 2:
+        if self.type != 2:
             for ind, neighbour in enumerate(self.neighbours):
                 if neighbour != addr[0]:
+                    if msg.jumps is None:
+                        msg.jumps = list()
                     msg = msg.jumps.append(self.interfaces[ind])
                     self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
         else: # RP Node
@@ -66,8 +70,8 @@ class Node:
     def control_service(self):
         # Nó folha
         if len(self.neighbours) == 1:
-            timestamp = datetime.timestamp(datetime.now())
-            self.control_socket.sendoto(Message(2, timestamp=timestamp).serialize(), (self.neighbours[0], 7777))
+            timestamp = int(datetime.now().timestamp())
+            self.control_socket.sendto(Message(2, timestamp=timestamp).serialize(), (self.neighbours[0], 7777))
 
         try:
             while True:

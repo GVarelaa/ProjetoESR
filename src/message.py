@@ -1,15 +1,20 @@
 import pickle
+import io
 from datetime import datetime
 
 class Message:
-    def __init__(self, msg_type, timestamp=None, flags=None, jumps=None):
+    def __init__(self, msg_type, flags=None, timestamp=0, nr_neighbours=0, nr_interfaces=0, nr_jumps=0, neighbours=None, interfaces=None, jumps=None):
         # Header
         self.type = msg_type
         self.flags = flags
-        # Data
         self.timestamp = timestamp
+        self.nr_neighbours = nr_neighbours
+        self.nr_interfaces = nr_interfaces
+        self.nr_jumps = nr_jumps
+        # Data
+        self.neighbours = neighbours
+        self.interfaces = interfaces
         self.jumps = jumps
-
     
     def __str__(self):
         return f"type: {self.type}"
@@ -18,27 +23,41 @@ class Message:
         return f"type: {self.type}"
 
     def serialize(self):
-        # type - 1 byte
-        byte_array = bytearray()
-        
-        byte_array.append(self.type.to_bytes(1, 'big'))
+        # Header
+        dictionary = { 
+            "type": self.type, 
+            "timestamp": self.timestamp,
+            "nr_neighbours": self.nr_neighbours,
+            "nr_interfaces": self.nr_interfaces,
+            "nr_jumps": self.nr_jumps
+        }
 
-        timestamp = self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        byte_array.append(len(timestamp).to_bytes(1, 'big'))
-        byte_array.append(timestamp.encode('utf-8'))
-        
-        byte_array.append(pickle.dumps(self.jumps))
+        # Data
+        if self.neighbours is not None:
+            dictionary["neighbours"] = self.neighbours
+            dictionary["interfaces"] = self.interfaces
 
-        return byte_array
+        if self.jumps is not None:
+            dictionary["jumps"] = self.jumps
+
+        return pickle.dumps(dictionary)
 
     @staticmethod
     def deserialize(bytes):
-        msg_type = int(bytes[0])
+        dictionary = pickle.loads(bytes)
 
-        timestamp_num = int(bytes[1])
-        timestamp = bytes[2:2+timestamp_num].decode('utf-8')
+        message = Message(dictionary["type"], 
+                    timestamp=dictionary["timestamp"],
+                    nr_neighbours=dictionary["nr_neighbours"],
+                    nr_interfaces=dictionary["nr_interfaces"],
+                    nr_jumps=dictionary["nr_jumps"])
 
-        jumps = pickle.loads(bytes[2+timestamp_num+1])
-
-        return Message(msg_type, timestamp=timestamp, jumps=jumps)
+        if "neighbours" in dictionary:
+            message.neighbours = dictionary["neighbours"]
+            message.interfaces = dictionary["interfaces"]
+        
+        elif "jumps" in dictionary:
+            message.jumps = dictionary["jumps"]
+        
+        return message
     
