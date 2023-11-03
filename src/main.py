@@ -24,6 +24,9 @@ def main():
         node = Node(2, bootstrapper_addr=args.rp)
         node.request_neighbours()
 
+    if len(node.neighbours) == 1: # Nó folha - manda constantemente o pedido de subscrição
+        threading.Thread(target=node.subscription_service, args=()).start()    
+
     threading.Thread(target=node.control_service, args=()).start()
 
 if __name__ == "__main__":

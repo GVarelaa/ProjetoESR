@@ -1,19 +1,23 @@
 import json
-import sys
+import time
 import socket
 import threading
 import logging
 from message import Message
 from datetime import datetime
+from database import Database
 
 class Node:
     def __init__(self, ntype, bootstrapper_addr=None, file=None):
         self.type = ntype
-        self.tree = dict()
-        self.neighbours = list()
+        self.database = Database()
+
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.subscription_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
         self.control_socket.bind(("", 7777))
+        self.subscription_socket.bind(("", 7779))
         self.data_socket.bind(("", 7778))
 
         if self.type == 0:
@@ -32,13 +36,14 @@ class Node:
         self.control_socket.sendto(Message(0).serialize(), self.bootstrapper_addr)
         self.logger.info("Control Service: Asked for neighbours")
 
-        msg, addr = self.control_socket.recvfrom(1024)  
+        msg, _ = self.control_socket.recvfrom(1024)  
         decoded_msg = Message.deserialize(msg)
 
         if decoded_msg.type == 1:
-            self.neighbours = decoded_msg.neighbours
+            self.database.neighbours = decoded_msg.neighbours
+            
             self.logger.info("Control Service: Neighbours received")
-            self.logger.debug(f"Neighbours: {self.neighbours}")
+            self.logger.debug(f"Neighbours: {self.database.neighbours}")
 
 
     def neighbours_worker(self, addr):
@@ -46,6 +51,7 @@ class Node:
             if addr[0] in value["interfaces"]: # é esse o servidor
                 msg = Message(1, neighbours=value["neighbours"])
                 self.control_socket.sendto(msg.serialize(), addr)
+
                 self.logger.info(f"Control Service: Neighbours sent to {addr[0]}")
                 self.logger.debug(f"Neighbours: {msg}")
             
@@ -55,40 +61,23 @@ class Node:
             msg.jumps = list()
         msg.jumps.append(addr[0])
 
-        timestamp = float(datetime.now().timestamp())
-        diff = timestamp - msg.timestamp
-
-        if msg.jumps[0] in self.tree:
-            latency, neighbour = self.tree[msg.jumps[0]]
-            
-            if diff < latency:
-                self.logger.debug(f"Control Service: Changing from neighbour {self.tree[msg.jumps[0]][1]} to neighbour {addr[0]}")
-                self.tree[msg.jumps[0]] = (diff, addr[0])
-
-        else:
-            self.logger.debug(f"Control Service: Adding neighbour {addr[0]}")
-            self.tree[msg.jumps[0]] = (diff, addr[0])
+        self.database.insert(msg.jumps[0], addr[0], msg.timestamp)
 
         if self.type != 2:
-            for neighbour in self.neighbours:
+            for neighbour in self.database.neighbours:
                 if neighbour != addr[0]:
                     self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+
                     self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
                     self.logger.debug(f"Message sent: {msg}")
     
 
     def control_service(self):
-        if len(self.neighbours) == 1: # Nó folha
-            timestamp = float(datetime.now().timestamp())
-            msg = Message(2, timestamp=timestamp)
-            self.control_socket.sendto(msg.serialize(), (self.neighbours[0], 7777))
-            self.logger.info(f"Control Service: Subscription message sent to neighbour {self.neighbours[0]}")
-            self.logger.debug(f"Message sent: {msg}")
-
         try:
             while True:
                 msg, addr = self.control_socket.recvfrom(1024)
                 decoded_msg = Message.deserialize(msg)
+
                 self.logger.info(f"Control Service: Subscription message received from neighbour {addr[0]}")
                 self.logger.debug(f"Message received: {decoded_msg}")
 
@@ -100,4 +89,16 @@ class Node:
             
         finally:
             self.control_socket.close()
+
+    
+    def subscription_service(self):
+        wait = 5 # 5 segundos
+        while True:
+            msg = Message(2, timestamp=float(datetime.now().timestamp()))
+            self.subscription_socket.sendto(msg.serialize(), (self.database.neighbours[0], 7777))
+
+            self.logger.info(f"Subscription Service: Subscription message sent to neighbour {self.database.neighbours[0]}")
+            self.logger.debug(f"Message sent: {msg}") 
+
+            time.sleep(wait)
 
