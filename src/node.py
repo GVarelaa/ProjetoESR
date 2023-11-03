@@ -10,7 +10,6 @@ from database import Database
 class Node:
     def __init__(self, ntype, bootstrapper_addr=None, file=None):
         self.type = ntype
-        self.database = Database()
 
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.subscription_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -30,6 +29,8 @@ class Node:
         logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
+
+        self.database = Database(self.logger)
 
 
     def request_neighbours(self):
