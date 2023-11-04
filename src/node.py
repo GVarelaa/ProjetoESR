@@ -103,3 +103,13 @@ class Node:
 
             time.sleep(wait)
 
+    
+    def pruning_service(self):
+        wait = 20 # 20 segundos
+        while True:
+            timestamp = float(datetime.now().timestamp())
+            
+            self.database.prune(timestamp)
+
+            time.sleep(wait)
+

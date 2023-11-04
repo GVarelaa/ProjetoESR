@@ -9,8 +9,10 @@ class Database:
         self.tree = dict()
         self.logger = logger
 
+
     def insert(self, client, neighbour, timestamp):
-        diff = float(datetime.now().timestamp()) - timestamp
+        actual_timestamp = float(datetime.now().timestamp())
+        diff = actual_timestamp - timestamp
 
         self.lock.acquire()
         if client in self.tree:
@@ -22,5 +24,19 @@ class Database:
         else:
             self.logger.debug(f"Control Service: Adding neighbour {neighbour}")
             self.tree[client] = Entry(timestamp, neighbour, diff)
+
+        self.tree[client].timestamp = actual_timestamp
+
+        self.lock.release()
+
+
+    def prune(self, timestamp, wait_time):
+        self.lock.acquire()
+
+        for key, value in self.tree.items():
+            if timestamp - value.timestamp >= wait_time:
+                self.tree.pop(key)
+
+                self.logger.debug(f"Pruning Service: Client {key} was removed from tree")
 
         self.lock.release()
