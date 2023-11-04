@@ -33,10 +33,15 @@ class Database:
     def prune(self, timestamp, wait_time):
         self.lock.acquire()
 
+        to_remove = list()
+
         for key, value in self.tree.items():
             if timestamp - value.timestamp >= wait_time:
-                self.tree.pop(key)
+                to_remove.append(key)
 
                 self.logger.debug(f"Pruning Service: Client {key} was removed from tree")
+        
+        for key in to_remove:
+            self.tree.pop(key)
 
         self.lock.release()

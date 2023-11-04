@@ -109,7 +109,7 @@ class Node:
         while True:
             timestamp = float(datetime.now().timestamp())
             
-            self.database.prune(timestamp)
+            self.database.prune(timestamp, wait)
 
             time.sleep(wait)
 

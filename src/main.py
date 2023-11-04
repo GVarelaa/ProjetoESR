@@ -28,6 +28,7 @@ def main():
         threading.Thread(target=node.subscription_service, args=()).start()    
 
     threading.Thread(target=node.control_service, args=()).start()
+    threading.Thread(target=node.pruning_service, args=()).start()
 
 if __name__ == "__main__":
     main()
