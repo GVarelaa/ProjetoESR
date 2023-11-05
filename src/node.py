@@ -3,6 +3,7 @@ import time
 import socket
 import threading
 import logging
+import copy
 from message import Message
 from datetime import datetime
 from database import Database
@@ -34,17 +35,39 @@ class Node:
 
 
     def request_neighbours(self):
-        self.control_socket.sendto(Message(0).serialize(), self.bootstrapper_addr)
-        self.logger.info("Control Service: Asked for neighbours")
+        self.control_socket.settimeout(5)
+        retries = 3
+        wait_time = 2
+        received = False
 
-        msg, _ = self.control_socket.recvfrom(1024)  
-        decoded_msg = Message.deserialize(msg)
+        while not received and retries > 0:
+            if retries != 3:
+                wait_time *= 2
+                time.sleep(wait_time)
+                    
+            self.control_socket.sendto(Message(0).serialize(), self.bootstrapper_addr)
+            self.logger.info("Control Service: Asked for neighbours")
 
-        if decoded_msg.type == 1:
-            self.database.neighbours = decoded_msg.neighbours
+            try:
+                msg, _ = self.control_socket.recvfrom(1024)
+                received = True
+                decoded_msg = Message.deserialize(msg)
+
+                if decoded_msg.type == 1:
+                    self.database.neighbours = decoded_msg.neighbours
+
+                    self.logger.info("Control Service: Neighbours received")
+                    self.logger.debug(f"Neighbours: {self.database.neighbours}")
             
-            self.logger.info("Control Service: Neighbours received")
-            self.logger.debug(f"Neighbours: {self.database.neighbours}")
+            except socket.timeout:
+                retries -= 1
+
+                if retries > 0:
+                    self.logger.info(f"Control Service: Could not receive response to neighbours request")
+
+        if not received:
+            self.logger.info("Control Service: Could not receive response to neighbours request after 3 retries")
+            exit() # É este o comportamento que queremos ?
 
 
     def neighbours_worker(self, addr):
@@ -58,6 +81,13 @@ class Node:
             
 
     def subscription_worker(self, addr, msg):
+        # Enviar ack para trás
+        ack_msg = copy.deepcopy(msg)
+        ack_msg.flag = 1
+        self.control_socket.sendto(ack_msg.serialize(), addr)
+        self.logger.info(f"Control Service: Acknowledgment message sent to {addr[0]}")
+        self.logger.debug(f"Ack message sent: {msg}")
+        
         if msg.jumps is None:
             msg.jumps = list()
         msg.jumps.append(addr[0])
@@ -65,16 +95,66 @@ class Node:
         self.database.insert(msg.jumps[0], addr[0], msg.timestamp)
 
         if self.type != 2:
-            for neighbour in self.database.neighbours:
-                if neighbour != addr[0]:
-                    self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+            some_received = False # Se recebeu de algum dos neighbours
 
-                    self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
-                    self.logger.debug(f"Message sent: {msg}")
+            for neighbour in self.database.neighbours:
+                if neighbour != addr[0]: # Se o vizinho não for o que enviou a mensagem
+                    self.control_socket.settimeout(5)
+                    retries = 3
+                    wait_time = 2
+                    received = False
+
+                    while not received and retries > 0:
+                        if retries != 3:
+                            wait_time *= 2
+                            time.sleep(wait_time)
+                                
+                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                        self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                        self.logger.debug(f"Message sent: {msg}")
+
+                        try:
+                            msg, _ = self.subscription_socket.recvfrom(1024)
+                            decoded_msg = Message.deserialize(msg)
+
+                            if decoded_msg.flag == 1:
+                                received = True
+                                some_received = True
+                                self.logger.info("Control Service: Acknowledgment received")
+                        
+                        except socket.timeout:
+                            retries -= 1
+
+                            if retries > 0:
+                                self.logger.info(f"Control Service: Could not receive an acknowledgment from subscription request")
+
+                    if not received:
+                        self.logger.info("Control Service: Could not receive an acknowledgment from subscription request after 3 retries")
+            
+            if not some_received:
+                msg.jumps.pop()
+                next_step = msg.jumps.pop()
+                self.control_socket.sendto(Message(2, flag=2, jumps=msg.jumps).serialize(), (next_step,7777))
+                self.logger.info(f"Control Service: Could not forward subscription message from {msg.jumps[0]}. Sending back to {msg.jumps[-1]}")
+    
+
+    def sendback_worker(self, addr, msg):
+        if len(self.database.neighbours != 1):
+            next_step = msg.jumps.pop()
+            self.control_socket.sendto(Message(2, flag=2, jumps=msg.jumps).serialize(), (next_step,7777))
+            self.logger.info(f"Control Service: Could not forward subscription message from {msg.jumps[0]}. Sending back to {msg.jumps[-1]}")
+        else:
+            exit()
+
+
+    def leave_worker(self, msg):
+        self.database.remove(msg.jumps[0])
     
 
     def control_service(self):
         try:
+            self.control_socket.settimeout(None)
+
             while True:
                 msg, addr = self.control_socket.recvfrom(1024)
                 decoded_msg = Message.deserialize(msg)
@@ -86,22 +166,63 @@ class Node:
                     threading.Thread(target=self.neighbours_worker, args=(addr,)).start()
                 
                 elif decoded_msg.type == 2:
-                    threading.Thread(target=self.subscription_worker, args=(addr,decoded_msg,)).start()
+                    if decoded_msg.flag == 0:
+                        threading.Thread(target=self.subscription_worker, args=(addr, decoded_msg,)).start()
+                    
+                    elif decoded_msg.flag == 2:
+                        threading.Thread(target=self.sendback_worker, args=(addr, decoded_msg,)).start()
+                
+                elif decoded_msg.type == 3 and decoded_msg.flag != 1:
+                    threading.Thread(target=self.leave_worker, args=(decoded_msg,)).start()
             
         finally:
             self.control_socket.close()
 
     
     def subscription_service(self):
-        wait = 5 # 5 segundos
-        while True:
-            msg = Message(2, timestamp=float(datetime.now().timestamp()))
-            self.subscription_socket.sendto(msg.serialize(), (self.database.neighbours[0], 7777))
+        try:
+            wait = 10 # 10 segundos
+            
+            while True:
+                self.subscription_socket.settimeout(5)
+                retries = 3
+                wait_time = 2
+                received = False
 
-            self.logger.info(f"Subscription Service: Subscription message sent to neighbour {self.database.neighbours[0]}")
-            self.logger.debug(f"Message sent: {msg}") 
+                while not received and retries > 0:
+                    if retries != 3:
+                        wait_time *= 2
+                        time.sleep(wait_time)
+                            
+                    msg = Message(2, timestamp=float(datetime.now().timestamp()))
+                    self.subscription_socket.sendto(msg.serialize(), (self.database.neighbours[0], 7777))
 
-            time.sleep(wait)
+                    self.logger.info(f"Subscription Service: Subscription message sent to neighbour {self.database.neighbours[0]}")
+                    self.logger.debug(f"Message sent: {msg}") 
+
+                    try:
+                        msg, _ = self.subscription_socket.recvfrom(1024)
+                        decoded_msg = Message.deserialize(msg)
+
+                        if decoded_msg.flag == 1:
+                            received = True
+                            self.logger.info("Subscription Service: Acknowledgment received")
+                    
+                    except socket.timeout:
+                        retries -= 1
+
+                        if retries > 0:
+                            self.logger.info(f"Subscription Service: Could not receive an acknowledgment from subscription request")
+
+                if not received:
+                    self.logger.info("Subscription Service: Could not receive an acknowledgment from subscription request after 3 retries")
+                    exit() # É este o comportamento que queremos ?
+
+                else:
+                    time.sleep(wait)
+        
+        finally:
+            self.subscription_socket.close()
 
     
     def pruning_service(self):

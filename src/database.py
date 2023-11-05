@@ -45,3 +45,14 @@ class Database:
             self.tree.pop(key)
 
         self.lock.release()
+
+    
+    def remove(self, addr):
+        self.lock.acquire()
+
+        if addr in self.tree:
+            self.tree.pop(addr)
+
+        self.logger.debug(f"Control Service: Client {addr} was removed from tree")
+
+        self.lock.release()

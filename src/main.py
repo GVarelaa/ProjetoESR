@@ -25,10 +25,13 @@ def main():
         node.request_neighbours()
 
     if len(node.database.neighbours) == 1: # Nó folha - manda constantemente o pedido de subscrição
-        threading.Thread(target=node.subscription_service, args=()).start()    
-
+        threading.Thread(target=node.subscription_service, args=()).start()
+    
+    else:
+        threading.Thread(target=node.pruning_service, args=()).start()
+        
     threading.Thread(target=node.control_service, args=()).start()
-    threading.Thread(target=node.pruning_service, args=()).start()
+    
 
 if __name__ == "__main__":
     main()

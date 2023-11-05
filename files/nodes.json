@@ -37,11 +37,11 @@
     },
     "n23": {
         "interfaces": ["10.0.20.21"],
-        "neighbours": ["10.0.20.1"]
+        "neighbours": ["10.0.5.2"]
     },
     "n24": {
         "interfaces": ["10.0.20.20"],
-        "neighbours": ["10.0.20.1"]
+        "neighbours": ["10.0.5.2"]
     },
     "n17": {
         "interfaces": ["10.0.0.21"],
