@@ -3,20 +3,19 @@ import io
 from datetime import datetime
 
 class Message:
-    def __init__(self, msg_type, flag=0, timestamp=0, neighbours=None, jumps=None):
+    def __init__(self, msg_type, flag=0, timestamp=0, data=None):
         # Header
         self.type = msg_type
         self.flag = flag
         self.timestamp = timestamp
         # Data
-        self.neighbours = neighbours
-        self.jumps = jumps
+        self.data = data
     
     def __str__(self):
-        return f"Type: {self.type} | Flag: {self.flag} | Timestamp: {self.timestamp} | Neighbours: {self.neighbours} | Jumps: {self.jumps}"
+        return f"Type: {self.type} | Flag: {self.flag} | Timestamp: {self.timestamp} | Data: {self.data}"
 
     def __repr__(self):
-        return f"Type: {self.type} | Flag: {self.flag} | Timestamp: {self.timestamp} | Neighbours: {self.neighbours} | Jumps: {self.jumps}"
+        return f"Type: {self.type} | Flag: {self.flag} | Timestamp: {self.timestamp} | Data: {self.data}"
 
     def serialize(self):
         # Header
@@ -27,11 +26,8 @@ class Message:
         }
 
         # Data
-        if self.neighbours is not None:
-            dictionary["neighbours"] = self.neighbours
-
-        if self.jumps is not None:
-            dictionary["jumps"] = self.jumps
+        if self.data is not None:
+            dictionary["data"] = self.data
 
         return pickle.dumps(dictionary)
 
@@ -41,11 +37,8 @@ class Message:
 
         message = Message(dictionary["type"], flag=dictionary["flag"], timestamp=dictionary["timestamp"])
 
-        if "neighbours" in dictionary:
-            message.neighbours = dictionary["neighbours"]
-        
-        elif "jumps" in dictionary:
-            message.jumps = dictionary["jumps"]
+        if "data" in dictionary:
+            message.data = dictionary["data"]
         
         return message
     
