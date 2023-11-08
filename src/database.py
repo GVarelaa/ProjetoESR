@@ -1,39 +1,59 @@
 import threading
 from datetime import datetime
 from entry import Entry
+from server_info import ServerInfo
 
 class Database:
     def __init__(self, logger):
         self.neighbours = list()
+        self.servers = list()
 
-        self.lock = threading.Lock()
+        # READ WRITE LOCK ?
+        self.tree_lock = threading.Lock()
         self.tree = dict()
+
+        self.servers_info_lock = threading.Lock()
+        self.servers_info = dict()
 
         self.logger = logger
 
 
-    def insert(self, client, neighbour, timestamp):
+    def insert_servers(self, source_ip, timestamp, contents):
         actual_timestamp = float(datetime.now().timestamp())
-        diff = actual_timestamp - timestamp
+        latency = actual_timestamp - timestamp
 
-        self.lock.acquire()
+        self.servers_info_lock.acquire()
+
+        self.servers_info[source_ip] = ServerInfo(source_ip, latency, contents, True) 
+
+        self.logger.info(f"Control Service: Metrics from {source_ip} were updated")
+
+        self.servers_info_lock.release()
+
+
+    def insert_tree(self, client, neighbour, timestamp):
+        actual_timestamp = float(datetime.now().timestamp())
+        latency = actual_timestamp - timestamp
+
+        self.tree_lock.acquire()
+        
         if client in self.tree:
             entry = self.tree[client]
             
-            if diff < entry.latency:
+            if latency < entry.latency:
                 self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                self.tree[client] = Entry(timestamp, neighbour, diff)
+                self.tree[client] = Entry(timestamp, neighbour, latency)
         else:
-            self.logger.debug(f"Control Service: Adding neighbour {neighbour}")
-            self.tree[client] = Entry(timestamp, neighbour, diff)
+            self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
+            self.tree[client] = Entry(timestamp, neighbour, latency)
 
         self.tree[client].timestamp = actual_timestamp
 
-        self.lock.release()
+        self.tree_lock.release()
 
 
-    def prune(self, timestamp, wait_time):
-        self.lock.acquire()
+    def prune_tree(self, timestamp, wait_time):
+        self.tree_lock.acquire()
 
         to_remove = list()
 
@@ -46,15 +66,15 @@ class Database:
         for key in to_remove:
             self.tree.pop(key)
 
-        self.lock.release()
+        self.tree_lock.release()
 
     
-    def remove(self, addr):
-        self.lock.acquire()
+    def remove_tree(self, addr):
+        self.tree_lock.acquire()
 
         if addr in self.tree:
             self.tree.pop(addr)
 
         self.logger.debug(f"Control Service: Client {addr} was removed from tree")
 
-        self.lock.release()
+        self.tree_lock.release()
