@@ -3,7 +3,10 @@ import socket
 import sys
 import threading
 import argparse
-from node import Node
+from node.node import Node
+from node.rp import RP
+from node.bootstrapper import Bootstrapper
+from node.client import Client
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,16 +18,16 @@ def main():
     
     # Se for bootstrapper
     if args.b:
-        node = Node(0, file=args.b)
+        node = Bootstrapper(0, args.b)
     
     # Se for nodo
     elif args.n:
-        node = Node(1, bootstrapper_addr=args.n)
+        node = Node(1, bootstrapper=args.n)
         node.request_neighbours()
     
     # Se for RP
     else:
-        node = Node(2, bootstrapper_addr=args.rp)
+        node = RP(2, bootstrapper=args.rp)
         node.request_neighbours()
 
     if len(node.database.neighbours) == 1: # Nó folha - manda constantemente o pedido de subscrição

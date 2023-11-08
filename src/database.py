@@ -5,8 +5,10 @@ from entry import Entry
 class Database:
     def __init__(self, logger):
         self.neighbours = list()
+
         self.lock = threading.Lock()
         self.tree = dict()
+
         self.logger = logger
 
 
