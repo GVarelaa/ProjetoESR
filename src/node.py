@@ -35,11 +35,14 @@ class Node:
         self.database = Database(self.logger)
 
 
-    def send_udp(self, msg, retries, timeout, wait, service, address, socket_udp):
+    def send_udp(self, msg, retries, timeout, service, address, socket_udp):
         received = False
         socket_udp.settimeout(timeout)
 
         while not received and retries > 0:
+            if retries != 3:
+                self.logger.info(f"{service}: New attempt sent to neighbour {address[0]}")
+
             socket_udp.sendto(msg.serialize(), address)
 
             try:
@@ -50,11 +53,10 @@ class Node:
             
             except socket.timeout:
                 if retries > 0:
-                    self.logger.info(f"{service}: Could not receive a response")
+                    self.logger.info(f"{service}: Could not receive a response from {address[0]}")
 
-                wait *= 2
                 retries -= 1
-                time.sleep(wait)                
+                socket_udp.settimeout(socket_udp.gettimeout()*2)  
 
         if received == True:
             return msg
@@ -67,7 +69,7 @@ class Node:
 
         self.logger.info("Control Service: Asked for neighbours")
         try:
-            response = self.send_udp(message, 3, 5, 2, "Control Service", self.bootstrapper_addr, self.control_socket)
+            response = self.send_udp(message, 3, 2, "Control Service", self.bootstrapper_addr, self.control_socket)
 
             if response.type == 1:
                 self.database.neighbours = response.data
@@ -100,7 +102,7 @@ class Node:
         self.control_socket.sendto(ack_msg.serialize(), addr)
         self.logger.info(f"Control Service: Acknowledgment message sent to {addr[0]}")
         self.logger.debug(f"Ack message sent: {msg}")
-        
+
         if msg.data is None:
             msg.data = list()
         msg.data.append(addr[0])
@@ -108,29 +110,33 @@ class Node:
         self.database.insert(msg.data[0], addr[0], msg.timestamp)
 
         if self.type != 2:
-            some_received = False # Se recebeu de algum dos neighbours
+            # Criar novo socket
+            forward_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            
+            # some_received = False # Se recebeu de algum dos neighbours
 
-            for neighbour in self.database.neighbours:
+            for neighbour in self.database.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
                 if neighbour != addr[0]: # Se o vizinho não for o que enviou a mensagem
-                    self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
-                    self.logger.debug(f"Message sent: {msg}")
-
                     try:
-                        response = self.send_udp(msg, 3, 5, 2, "Control Service", (neighbour, 7777), self.control_socket)
+                        self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                        self.logger.debug(f"Message sent: {msg}")
+                        
+                        response = self.send_udp(msg, 3, 2, "Control Service", (neighbour, 7777), forward_socket)
 
                         if response.flag == 1:
-                            some_received = True
+                            # some_received = True
                             self.logger.info("Control Service: Acknowledgment received")
 
                     except ACKFailed:
                         self.logger.info("Control Service: Could not receive an acknowledgment from subscription request after 3 retries")
             
-            if not some_received:
-                msg.data.pop()
-                next_step = msg.data.pop()
-
-                self.control_socket.sendto(Message(2, flag=2, data=msg.data).serialize(), (next_step, 7777))
-                self.logger.info(f"Control Service: Could not forward subscription message from {msg.data[0]}. Sending back to {msg.data[-1]}")
+            forward_socket.close()
+            
+            #if not some_received:
+            #    msg.data.pop()
+            #    next_step = msg.data.pop()#
+            #    self.control_socket.sendto(Message(2, flag=2, data=msg.data).serialize(), (next_step, 7777))
+            #    self.logger.info(f"Control Service: Could not forward subscription message from {msg.data[0]}. Sending back to {msg.data[-1]}")
     
 
     def sendback_worker(self, addr, msg):
@@ -176,7 +182,7 @@ class Node:
     
     def polling_service(self):
         try:
-            wait = 60 # 10 segundos
+            wait = 30 # 10 segundos
             
             while True:
                 msg = Message(2, timestamp=float(datetime.now().timestamp()))
@@ -185,7 +191,7 @@ class Node:
                     self.logger.info(f"Subscription Service: Subscription message sent to neighbour {self.database.neighbours[0]}")
                     self.logger.debug(f"Message sent: {msg}") 
 
-                    response = self.send_udp(msg, 3, 5, 2, "Subscription Service", (self.database.neighbours[0], 7777), self.polling_socket)
+                    response = self.send_udp(msg, 3, 2, "Subscription Service", (self.database.neighbours[0], 7777), self.polling_socket)
 
                     if response.flag == 1: 
                         self.logger.info("Subscription Service: Acknowledgment received")
