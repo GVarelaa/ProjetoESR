@@ -8,7 +8,6 @@ class Message:
         # Header
         self.type = msg_type
         self.flag = flag
-        self.error = error
         self.latency = latency
         # Data
         self.source_ip = source_ip
