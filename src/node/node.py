@@ -13,8 +13,8 @@ from abc import abstractmethod
 
 class Node:
     NEIGHBOURS = 0
-	NEIGHBOURS_RESP = 1
-	MEASURE = 2
+    NEIGHBOURS_RESP = 1
+    MEASURE = 2
     MEASURE_RESP = 3
     JOIN = 4
     PLAY = 5
@@ -40,8 +40,8 @@ class Node:
         self.database = Database(self.logger)
 
         self.request_neighbours()
-        threading.Thread(target=node.pruning_service, args=()).start()
-        threading.Thread(target=node.control_service, args=()).start()
+        threading.Thread(target=self.pruning_service, args=()).start()
+        threading.Thread(target=self.control_service, args=()).start()
         
 
     @abstractmethod
@@ -125,7 +125,7 @@ def main():
     args = parser.parse_args()
 
     if args.file:
-	    node = Node(args.bootstrapper)
+        node = Node(args.bootstrapper)
     else:
         print("Error: Wrong arguments")
         exit()

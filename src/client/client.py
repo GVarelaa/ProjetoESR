@@ -3,150 +3,160 @@ import tkinter.messagebox
 from PIL import Image, ImageTk
 import socket, threading, sys, traceback, os
 from rtppacket import RtpPacket
+from message import Message
 
 CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
 
 class Client:
-	def __init__(self, master, addr, port):
-		self.master = master
-		self.master.protocol("WM_DELETE_WINDOW", self.handler)
-		self.create_widgets()
-		self.addr = addr
-		self.port = int(port)
-		self.rtsp_seq = 0
-		self.session_id = 0
-		self.request_sent = -1
-		self.teardown_acked = 0
-		self.open_rtp_port()
-		self.play_movie()
-		self.frame_nr = 0
+    def __init__(self, master, addr, port):
+        self.master = master
+        self.master.protocol("WM_DELETE_WINDOW", self.handler)
+        self.create_widgets()
+        self.addr = addr
+        self.port = int(port)
+        self.rtsp_seq = 0
+        self.session_id = 0
+        self.request_sent = -1
+        self.teardown_acked = 0
+        self.open_rtp_port()
+        self.play_movie()
+        self.frame_nr = 0
 
 
-	def create_widgets(self):
-		"""Build GUI."""
-		# Create Setup button
-		self.setup = Button(self.master, width=20, padx=3, pady=3)
-		self.setup["text"] = "Setup"
-		self.setup["command"] = self.setup_movie
-		self.setup.grid(row=1, column=0, padx=2, pady=2)
-		
-		# Create Play button		
-		self.start = Button(self.master, width=20, padx=3, pady=3)
-		self.start["text"] = "Play"
-		self.start["command"] = self.play_movie
-		self.start.grid(row=1, column=1, padx=2, pady=2)
-		
-		# Create Pause button			
-		self.pause = Button(self.master, width=20, padx=3, pady=3)
-		self.pause["text"] = "Pause"
-		self.pause["command"] = self.pause_movie
-		self.pause.grid(row=1, column=2, padx=2, pady=2)
-		
-		# Create Teardown button
-		self.teardown = Button(self.master, width=20, padx=3, pady=3)
-		self.teardown["text"] = "Teardown"
-		self.teardown["command"] =  self.exit_client
-		self.teardown.grid(row=1, column=3, padx=2, pady=2)
-		
-		# Create a label to display the movie
-		self.label = Label(self.master, height=19)
-		self.label.grid(row=0, column=0, columnspan=4, sticky=W+E+N+S, padx=5, pady=5) 
+    def create_widgets(self):
+        """Build GUI."""
+        # Create Setup button
+        self.setup = Button(self.master, width=20, padx=3, pady=3)
+        self.setup["text"] = "Setup"
+        self.setup["command"] = self.setup_movie
+        self.setup.grid(row=1, column=0, padx=2, pady=2)
+        
+        # Create Play button		
+        self.start = Button(self.master, width=20, padx=3, pady=3)
+        self.start["text"] = "Play"
+        self.start["command"] = self.play_movie
+        self.start.grid(row=1, column=1, padx=2, pady=2)
+        
+        # Create Pause button			
+        self.pause = Button(self.master, width=20, padx=3, pady=3)
+        self.pause["text"] = "Pause"
+        self.pause["command"] = self.pause_movie
+        self.pause.grid(row=1, column=2, padx=2, pady=2)
+        
+        # Create Teardown button
+        self.teardown = Button(self.master, width=20, padx=3, pady=3)
+        self.teardown["text"] = "Teardown"
+        self.teardown["command"] =  self.exit_client
+        self.teardown.grid(row=1, column=3, padx=2, pady=2)
+        
+        # Create a label to display the movie
+        self.label = Label(self.master, height=19)
+        self.label.grid(row=0, column=0, columnspan=4, sticky=W+E+N+S, padx=5, pady=5) 
 
 
-	def setup_movie(self):
-		"""Setup button handler."""
-		print("Not implemented...")
+    def setup_movie(self):
+        """Setup button handler."""
+        print("Not implemented...")
 
 
-	def exit_client(self):
-		"""Teardown button handler."""
-		self.master.destroy() # Close the gui window
-		os.remove(CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT) # Delete the cache image from video
+    def exit_client(self):
+        """Teardown button handler."""
+        self.master.destroy() # Close the gui window
+        os.remove(CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT) # Delete the cache image from video
 
 
-	def pause_movie(self):
-		"""Pause button handler."""
-		print("Not implemented...")
+    def pause_movie(self):
+        """Pause button handler."""
+        print("Not implemented...")
 
 
-	def play_movie(self):
-		"""Play button handler."""
-		# Create a new thread to listen for RTP packets
-		threading.Thread(target=self.listen_rtp).start()
-		self.play_event = threading.Event()
-		self.play_event.clear()
+    def play_movie(self):
+        """Play button handler."""
+        # Create a new thread to listen for RTP packets
+        server_ip = ""
+        rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rtsp_socket.sendto(Message(9), (server_ip, 7777))
+
+        msg, _ = rtsp_socket.recvfrom(2048)
+
+        msg = Message.deserialize(msg)
+
+        if msg.msg_type == 8:
+            threading.Thread(target=self.listen_rtp).start()
+            self.play_event = threading.Event()
+            self.play_event.clear()
 
 
-	def listen_rtp(self):		
-		"""Listen for RTP packets."""
-		while True:
-			try:
-				data = self.rtp_socket.recv(20480)
-				if data:
-					rtp_packet = RtpPacket()
-					rtp_packet.decode(data)
-					
-					curr_frame_nr = rtp_packet.get_seq_num()
-					print("Current Seq Num: " + str(curr_frame_nr))
-										
-					if curr_frame_nr > self.frame_nr: # Discard the late packet
-						self.frame_nr = curr_frame_nr
-						self.update_movie(self.write_frame(rtp_packet.get_payload()))
-			except:
-				# Stop listening upon requesting PAUSE or TEARDOWN
-				if self.play_event.isSet(): 
-					break
-				
-				self.rtp_socket.shutdown(socket.SHUT_RDWR)
-				self.rtp_Socket.close()
-				break
-				
-	
-	def write_frame(self, data):
-		"""Write the received frame to a temp image file. Return the image file."""
-		cachename = CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
-		file = open(cachename, "wb")
-		file.write(data)
-		file.close()
-		
-		return cachename
+    def listen_rtp(self):		
+        """Listen for RTP packets."""
+        while True:
+            try:
+                data, _ = self.rtp_socket.recvfrom(20480)
+                if data:
+                    rtp_packet = RtpPacket()
+                    rtp_packet.decode(data)
+                    
+                    curr_frame_nr = rtp_packet.get_seq_num()
+                    print("Current Seq Num: " + str(curr_frame_nr))
+                                        
+                    if curr_frame_nr > self.frame_nr: # Discard the late packet
+                        self.frame_nr = curr_frame_nr
+                        self.update_movie(self.write_frame(rtp_packet.get_payload()))
+            except:
+                # Stop listening upon requesting PAUSE or TEARDOWN
+                if self.play_event.isSet(): 
+                    break
+                
+                self.rtp_socket.shutdown(socket.SHUT_RDWR)
+                self.rtp_Socket.close()
+                break
+                
+    
+    def write_frame(self, data):
+        """Write the received frame to a temp image file. Return the image file."""
+        cachename = CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
+        file = open(cachename, "wb")
+        file.write(data)
+        file.close()
+        
+        return cachename
 
 
-	def update_movie(self, image_file):
-		"""Update the image file as video frame in the GUI."""
-		photo = ImageTk.PhotoImage(Image.open(image_file))
-		self.label.configure(image = photo, height=288) 
-		self.label.image = photo
-		
-	
-	def open_rtp_port(self):
-		"""Open RTP socket binded to a specified port."""
-		# Create a new datagram socket to receive RTP packets from the server
-		self.rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def update_movie(self, image_file):
+        """Update the image file as video frame in the GUI."""
+        photo = ImageTk.PhotoImage(Image.open(image_file))
+        self.label.configure(image = photo, height=288) 
+        self.label.image = photo
+        
+    
+    def open_rtp_port(self):
+        """Open RTP socket binded to a specified port."""
+        # Create a new datagram socket to receive RTP packets from the server
+        self.rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-		# Set the timeout value of the socket to 0.5sec
-		self.rtp_socket.settimeout(0.5)
-		
-		try:
-			# Bind the socket to the address using the RTP port
-			self.rtp_socket.bind((self.addr, self.port))
-			print('\nBind \n')
-		except:
-			tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtp_port)
+        # Set the timeout value of the socket to 0.5sec
+        self.rtp_socket.settimeout(0.5)
+        
+        try:
+            # Bind the socket to the address using the RTP port
+            self.rtp_socket.bind((self.addr, self.port))
+            print('\nBind \n')
+        except:
+            tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtp_port)
 
 
-	def handler(self):
-		"""Handler on explicitly closing the GUI window."""
-		self.pause_movie()
-		if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
-			self.exit_client()
-		else: # When the user presses cancel, resume playing.
-			self.play_movie()
+    def handler(self):
+        """Handler on explicitly closing the GUI window."""
+        self.pause_movie()
+        if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
+            self.exit_client()
+        else: # When the user presses cancel, resume playing.
+            self.play_movie()
 
 
 def main():
-	addr = '127.0.0.1'
+    addr = '127.0.0.1'
     port = 25000
     root = Tk()
     # Create a new client
