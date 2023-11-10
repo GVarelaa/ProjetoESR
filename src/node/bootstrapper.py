@@ -1,6 +1,9 @@
+import argparse
 import json
-import socket
-from node import *
+import threading
+
+from message import Message
+from .node import Node
 
 class Bootstrapper(Node):
     def __init__(self, file):
@@ -10,14 +13,30 @@ class Bootstrapper(Node):
             self.nodes = json.load(f)
 
 
-    def neighbours_worker(self, addr):
-        for key, value in self.nodes.items():
-            if addr[0] in value["interfaces"]: # é esse o servidor
-                msg = Message(1, data=value["neighbours"])
-                self.control_socket.sendto(msg.serialize(), addr)
+    def request_neighbours(self):
+        my_ip = self.control_socket.gethostbyname(socket.gethostname()) # verificar se isto funciona
 
-                self.logger.info(f"Control Service: Neighbours sent to {addr[0]}")
-                self.logger.debug(f"Neighbours: {msg}")
+        for key, value in self.nodes["nodes"].items():
+            if my_ip in value["interfaces"]: # é esse o servidor
+                self.database.neighbours = value["neighbours"]
+
+
+    def neighbours_worker(self, addr):
+        neighbours = list()
+        servers = list()
+
+        for key, value in self.nodes["nodes"].items():
+            if addr[0] in value["interfaces"]: # é esse o servidor
+                neighbours = value["neighbours"]
+
+        if addr[0] in self.nodes["rp"]:
+            servers = self.nodes["servers"]
+
+        msg = Message(1, servers=servers, neighbours=neighbours)
+        self.control_socket.sendto(msg.serialize(), addr)
+        
+        self.logger.info(f"Control Service: Message sent to {addr[0]}")
+        self.logger.debug(f"Message: {msg}")
 
 
     def control_service(self):
@@ -31,27 +50,31 @@ class Bootstrapper(Node):
                 self.logger.info(f"Control Service: Subscription message received from neighbour {addr[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
-                if msg.type == 0:
+                if msg.type == self.NEIGHBOURS:
                     threading.Thread(target=self.neighbours_worker, args=(addr,)).start()
                 
-                elif msg.type == 2:
+                elif msg.type == self.JOIN:
                     if msg.flag == 0:
                         threading.Thread(target=self.subscription_worker, args=(addr, msg,)).start()
-                    
-                    elif msg.flag == 2:
-                        threading.Thread(target=self.sendback_worker, args=(addr, msg,)).start()
                 
-                elif msg.type == 3 and msg.flag != 1:
+                elif msg.type == self.LEAVE:
                     threading.Thread(target=self.leave_worker, args=(msg,)).start()
             
         finally:
             self.control_socket.close()
 
 
-    def request_neighbours(self):
-        my_ip = self.control_socket.gethostbyname(socket.gethostname())
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-file", help="bootstrapper file")
+    args = parser.parse_args()
 
-        for key, value in self.nodes.items():
-            if my_ip in value["interfaces"]: # é esse o servidor
-                self.database.neighbours = value["neighbours"]
+    if args.file:
+	    node = Bootstrapper(args.file)
+    else:
+        print("Error: Wrong arguments")
+        exit()
 
+
+if __name__ == "__main__":
+    main()
