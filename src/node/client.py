@@ -1,8 +1,14 @@
-from node import *
+import threading
+import socket
+import time
+from datetime import datetime
+from .node import Node
+from message import Message
+from exceptions import *
 
 class Client(Node):
     def __init__(self, bootstrapper):
-        super.__init__(bootstrapper=bootstrapper)
+        super().__init__(bootstrapper=bootstrapper)
 
         self.polling_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.polling_socket.bind(("", 7779))
@@ -10,7 +16,7 @@ class Client(Node):
     
     def polling_service(self):
         try:
-            wait = 30 # 10 segundos
+            wait = 100 # 100 segundos
             
             while True:
                 msg = Message(2, timestamp=float(datetime.now().timestamp()))
