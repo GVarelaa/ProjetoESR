@@ -2,8 +2,8 @@ from tkinter import *
 import tkinter.messagebox
 from PIL import Image, ImageTk
 import socket, threading, sys, traceback, os
-from rtppacket import RtpPacket
-from message import Message
+from packets.rtppacket import RtpPacket
+from packets.controlpacket import ControlPacket
 
 CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
@@ -82,11 +82,11 @@ class Client:
         # Create a new thread to listen for RTP packets
         server_ip = ""
         rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        rtsp_socket.sendto(Message(self.STREAM_REQ, contents=["movie.Mjpeg"]).serialize(), ("10.0.6.10", 7777))
+        rtsp_socket.sendto(ControlPacket(self.STREAM_REQ, contents=["movie.Mjpeg"]).serialize(), ("10.0.6.10", 7777))
 
         #msg, _ = rtsp_socket.recvfrom(2048)
 
-        #msg = Message.deserialize(msg)
+        #msg = ControlPacket.deserialize(msg)
 
         #if msg.msg_type == 8:
         threading.Thread(target=self.listen_rtp).start()

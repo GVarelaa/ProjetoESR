@@ -1,4 +1,4 @@
-class Entry:
+class TreeEntry:
     def __init__(self, timestamp, next_step, latency):
         self.timestamp = timestamp # Último contacto do cliente
         self.next_step = next_step

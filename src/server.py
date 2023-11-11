@@ -6,9 +6,9 @@ import logging
 import argparse
 import time
 from random import randint
-from videostream import VideoStream
-from rtppacket import RtpPacket
-from message import Message
+from utils.videostream import VideoStream
+from packets.rtppacket import RtpPacket
+from packets.controlpacket import ControlPacket
 
 class Server:
     JOIN = 4
@@ -120,7 +120,7 @@ class Server:
         try:
             while True:
                 msg, addr = self.rtsp_socket.recvfrom(1024)
-                msg = Message.deserialize(msg)
+                msg = ControlPacket.deserialize(msg)
 
                 self.logger.info(f"Control Service: Message received from {addr[0]}")
                 self.logger.debug(f"Message received: {msg}")

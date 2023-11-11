@@ -1,8 +1,8 @@
-class ServerInfo:
+class MeasureEntry:
     def __init__(self, server, metric, contents, status):
         self.server = server
         self.metric = metric
-        self.contents = streams
+        self.contents = contents
         self.status = status
 
     def __str__(self):

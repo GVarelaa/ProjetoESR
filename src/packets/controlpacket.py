@@ -1,9 +1,7 @@
-import pickle
 import io
 import struct
-from datetime import datetime
 
-class Message:
+class ControlPacket:
     def __init__(self, msg_type, flag=0, error=0, latency=0, source_ip="", hops=list(), neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
