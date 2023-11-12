@@ -82,7 +82,7 @@ class RP():
             if message.flag == 0:
                 actual_timestamp = float(datetime.now().timestamp())
                 latency = actual_timestamp - message.latency
-                client = message.source_ip
+                client = message.hops[0]
                 neighbour = address[0]
 
                 self.tree_lock.acquire()
@@ -92,18 +92,20 @@ class RP():
                     
                     if latency < entry.latency:
                         self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                        self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
+                        self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
+                    
+                    else:
+                        self.tree[client].timestamp = actual_timestamp
+
                 else:
                     self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-                    self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
-
-                self.tree[client].timestamp = actual_timestamp
+                    self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
 
                 self.tree_lock.release()
 
                 # VERIFICAR ISTO
-                self.control_socket.sendto(ControlPacket(2, flags=1).serialize(), (message.source_ip, 7777))
-                self.logger.info(f"Control Service: Tree subscription confirmation message sent to {message.source_ip}")
+                #self.control_socket.sendto(ControlPacket(2, flags=1).serialize(), (message.hops[0], 7777))
+                #self.logger.info(f"Control Service: Tree subscription confirmation message sent to {message.hops[0]}")
         
         elif message.type == self.LEAVE:
             self.tree_lock.acquire()
@@ -121,13 +123,53 @@ class RP():
 
             self.servers_info_lock.acquire()
 
-            self.servers_info[address] = MeasureEntry(address, latency, message.contents, True) 
+            self.servers_info[address[0]] = MeasureEntry(address, latency, message.contents, True) 
 
             self.logger.info(f"Control Service: Metrics from {address} were updated")
 
             self.servers_info_lock.release()
+        
+        elif message.type == self.PLAY:
+            best_server = None
 
+            self.servers_info_lock.acquire()
 
+            for server, measure in self.servers_info.items():
+                if message.contents[0] in measure.contents:
+                    if best_server is not None:
+                        if best_server[1] > measure.metric:
+                            best_server = (measure.server, measure.metric)
+                    else:
+                        best_server = (measure.server, measure.metric)
+            
+            self.servers_info_lock.release()
+
+            msg = ControlPacket(self.STREAM_REQ, contents=message.contents)
+            self.control_socket.sendto(msg.serialize(), best_server[0])
+
+            self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
+            self.logger.debug(f"Message sent: {msg}")
+
+            try:
+                ips = set()
+
+                self.tree_lock.acquire()   
+                for tree_entry in self.tree.values():
+                    if message.contents[0] in tree_entry.contents:
+                        ips.add(tree_entry.next_step)
+                self.tree_lock.release()
+
+                while True:
+                    data, address = self.data_socket.recvfrom(20480)
+                 
+                    for ip in ips:
+                        self.data_socket.sendto(data, (ip, 7778))
+                        self.logger.info(f"Streaming Service: Rtp Packet sent to {ip}")
+            
+            finally:
+                self.data_socket.close()
+
+    
     def control_service(self):
         try:
             self.control_socket.settimeout(None)
@@ -143,7 +185,21 @@ class RP():
 
         finally:
             self.control_socket.close()
+    
 
+    """
+    def streaming_service(self):
+        try:
+            while True:
+                data, address = self.data_socket.recvfrom(1024)
+
+                self.logger.info(f"Streaming Service: Rtp Packet received from server {address[0]}")
+
+                threading.Thread(target=self.streaming_worker, args=(address, message,)).start()
+
+        finally:
+            self.control_socket.close()
+    """
 
     def pruning_service(self):
         wait = 20 # 20 segundos
@@ -172,8 +228,7 @@ class RP():
         wait = 20
         while True:
             for server in self.servers:
-                my_ip = self.control_socket.gethostbyname(socket.gethostname()) # verificar se isto funciona 
-                self.control_socket.sendto(ControlPacket(4, source_ip=my_ip).serialize(), (server, 7777))
+                self.control_socket.sendto(ControlPacket(self.MEASURE).serialize(), (server, 7777))
 
                 self.logger.info(f"Tracking Service: Monitorization message sent to {server}")
                     
@@ -184,7 +239,7 @@ def main():
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
     args = parser.parse_args()
 
-    if args.file:
+    if args.bootstrapper:
         RP(args.bootstrapper)
     else:
         print("Error: Wrong arguments")

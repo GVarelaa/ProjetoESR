@@ -1,43 +1,58 @@
+import argparse
+import socket, threading, sys, traceback, os
+import logging
+import time
+from datetime import datetime
 from tkinter import *
 import tkinter.messagebox
 from PIL import Image, ImageTk
-import socket, threading, sys, traceback, os
-from packets.rtppacket import RtpPacket
 from packets.controlpacket import ControlPacket
+from packets.rtppacket import RtpPacket
 
 CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
 
 class Client:
+    NEIGHBOURS_RESP = 1
     JOIN = 4
     PLAY = 5
     PAUSE = 6
     LEAVE = 7
     STREAM_REQ = 8
 
-    def __init__(self, master, addr, port):
+    def __init__(self, master, bootstrapper, videofile):
         self.master = master
+        self.videofile = videofile
+        self.neighbour = None
+
+        address = bootstrapper.split(":")
+        self.bootstrapper = (address[0], int(address[1]))
+
         self.master.protocol("WM_DELETE_WINDOW", self.handler)
         self.create_widgets()
-        self.addr = addr
-        self.port = int(port)
+
+        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        self.control_socket.bind(("", 7777))
+        self.data_socket.bind(("", 7778))
+
+        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        self.logger = logging.getLogger()
+        self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
+
+        self.setup() # Request neighbours
+        
         self.rtsp_seq = 0
         self.session_id = 0
         self.request_sent = -1
         self.teardown_acked = 0
-        self.open_rtp_port()
-        self.play_movie()
         self.frame_nr = 0
+        self.play_movie()
 
 
     def create_widgets(self):
         """Build GUI."""
-        # Create Setup button
-        self.setup = Button(self.master, width=20, padx=3, pady=3)
-        self.setup["text"] = "Setup"
-        self.setup["command"] = self.setup_movie
-        self.setup.grid(row=1, column=0, padx=2, pady=2)
-        
         # Create Play button		
         self.start = Button(self.master, width=20, padx=3, pady=3)
         self.start["text"] = "Play"
@@ -61,9 +76,47 @@ class Client:
         self.label.grid(row=0, column=0, columnspan=4, sticky=W+E+N+S, padx=5, pady=5) 
 
 
-    def setup_movie(self):
-        """Setup button handler."""
-        print("Not implemented...")
+    def setup(self):
+        self.control_socket.sendto(ControlPacket(0).serialize(), self.bootstrapper)
+        self.logger.info("Setup: Asked for neighbours")
+
+        try:
+            self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+
+            data, _ = self.control_socket.recvfrom(1024)
+            response = ControlPacket.deserialize(data)
+
+            if response.type == self.NEIGHBOURS_RESP:
+                self.neighbour = response.neighbours[0]
+                self.logger.info("Setup: Neighbours received")
+                self.logger.debug(f"Neighbours: {self.neighbour}")
+            
+            else:
+                self.logger.info("Setup: Unexpected response received")
+                exit() # É este o comportamento que queremos ?
+            
+        except socket.timeout:
+            self.logger.info("Setup: Could not receive response to neighbours request")
+            exit()
+
+
+    def play_movie(self):
+        """Play button handler."""
+        control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        msg = ControlPacket(self.JOIN, contents=[self.videofile])
+        control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+
+        self.logger.debug(f"Message sent: {msg}")
+
+        msg = ControlPacket(self.PLAY, contents=[self.videofile])
+        control_socket.sendto(msg.serialize(), ("10.0.19.1", 7777))
+
+        self.logger.debug(f"Message sent: {msg}")
+        
+        threading.Thread(target=self.listen_rtp).start()
+        self.play_event = threading.Event()
+        self.play_event.clear()
 
 
     def exit_client(self):
@@ -77,28 +130,11 @@ class Client:
         print("Not implemented...")
 
 
-    def play_movie(self):
-        """Play button handler."""
-        # Create a new thread to listen for RTP packets
-        server_ip = ""
-        rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        rtsp_socket.sendto(ControlPacket(self.STREAM_REQ, contents=["movie.Mjpeg"]).serialize(), ("10.0.6.10", 7777))
-
-        #msg, _ = rtsp_socket.recvfrom(2048)
-
-        #msg = ControlPacket.deserialize(msg)
-
-        #if msg.msg_type == 8:
-        threading.Thread(target=self.listen_rtp).start()
-        self.play_event = threading.Event()
-        self.play_event.clear()
-
-
     def listen_rtp(self):		
         """Listen for RTP packets."""
         while True:
             try:
-                data = self.rtp_socket.recv(20480)
+                data = self.data_socket.recv(20480)
                 if data:
                     rtp_packet = RtpPacket()
                     rtp_packet.decode(data)
@@ -114,8 +150,8 @@ class Client:
                 if self.play_event.isSet(): 
                     break
                 
-                self.rtp_socket.shutdown(socket.SHUT_RDWR)
-                self.rtp_Socket.close()
+                self.data_socket.shutdown(socket.SHUT_RDWR)
+                self.data_socket.close()
                 break
                 
     
@@ -134,22 +170,6 @@ class Client:
         photo = ImageTk.PhotoImage(Image.open(image_file))
         self.label.configure(image = photo, height=288) 
         self.label.image = photo
-        
-    
-    def open_rtp_port(self):
-        """Open RTP socket binded to a specified port."""
-        # Create a new datagram socket to receive RTP packets from the server
-        self.rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # Set the timeout value of the socket to 0.5sec
-        #self.rtp_socket.settimeout(5)
-        
-        try:
-            # Bind the socket to the address using the RTP port
-            self.rtp_socket.bind(("", self.port))
-            print('\nBind \n')
-        except:
-            tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtp_port)
 
 
     def handler(self):
@@ -162,13 +182,20 @@ class Client:
 
 
 def main():
-    addr = '127.0.0.1'
-    port = 7778
-    root = Tk()
-    # Create a new client
-    app = Client(root, addr, port)
-    app.master.title("Cliente Exemplo")	
-    root.mainloop()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-bootstrapper", help="bootstrapper ip")
+    parser.add_argument("-videofile", help="filename")
+    args = parser.parse_args()
+
+    if args.bootstrapper and args.videofile:
+        root = Tk()
+        app = Client(root, args.bootstrapper, args.videofile)
+        app.master.title("Client")	
+        root.mainloop()
+        
+    else:
+        print("Error: Wrong arguments")
+        exit()
 
 
 if __name__ == "__main__":

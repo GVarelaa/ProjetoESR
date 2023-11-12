@@ -2,14 +2,13 @@ import io
 import struct
 
 class ControlPacket:
-    def __init__(self, msg_type, flag=0, error=0, latency=0, source_ip="", hops=list(), neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, flag=0, error=0, latency=0, hops=list(), neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.flag = flag
         self.error = error
         self.latency = latency
         # Data
-        self.source_ip = source_ip
         self.hops = hops
         self.servers = servers
         self.neighbours = neighbours
@@ -17,11 +16,11 @@ class ControlPacket:
 
     
     def __str__(self):
-        return f"Type: {self.type} | Flag: {self.flag} | Error: {self.error} | Latency: {self.latency} | Source IP: {self.source_ip} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Flag: {self.flag} | Error: {self.error} | Latency: {self.latency} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def __repr__(self):
-        return f"Type: {self.type} | Flag: {self.flag} | Error: {self.error} | Latency: {self.latency} | Source IP: {self.source_ip} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Flag: {self.flag} | Error: {self.error} | Latency: {self.latency} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def serialize(self):
@@ -53,10 +52,6 @@ class ControlPacket:
         byte_array += len(self.contents).to_bytes(1, 'big')
         
         # Data
-        # Source IP
-        byte_array += len(self.source_ip).to_bytes(1, 'big')
-        byte_array += self.source_ip.encode('utf-8')
-        
         # Hops
         for hop in self.hops:
             # Tamanho string hop - 1 byte
@@ -97,9 +92,6 @@ class ControlPacket:
         nr_neighbours = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_contents = int.from_bytes(byte_array.read(1), byteorder='big')
 
-        source_ip_len = int.from_bytes(byte_array.read(1), byteorder='big')
-        source_ip = byte_array.read(source_ip_len).decode('utf-8')
-
         hops = list()
         servers = list()
         neighbours = list()
@@ -121,5 +113,5 @@ class ControlPacket:
             string_len = int.from_bytes(byte_array.read(1), byteorder='big')
             contents.append(byte_array.read(string_len).decode('utf-8'))
         
-        return Message(msg_type, flag=flags, error=error, latency=latency, source_ip=source_ip, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
+        return ControlPacket(msg_type, flag=flags, error=error, latency=latency, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
     

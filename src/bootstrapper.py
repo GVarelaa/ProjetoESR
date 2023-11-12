@@ -19,10 +19,11 @@ class Bootstrapper():
     LEAVE = 7
     STREAM_REQ = 8
 
-    def __init__(self, file):
+    def __init__(self, my_ip, file):
         with open(file) as f:
             self.nodes = json.load(f)
 
+        self.my_ip = my_ip
         self.neighbours = list()
 
         self.tree_lock = threading.Lock()
@@ -46,11 +47,9 @@ class Bootstrapper():
 
 
     def setup(self):
-        my_ip = self.control_socket.gethostbyname(socket.gethostname()) # verificar se isto funciona
-
         for key, value in self.nodes["nodes"].items():
-            if my_ip in value["interfaces"]: # é esse o servidor
-                self.database.neighbours = value["neighbours"]
+            if self.my_ip in value["interfaces"]: # é esse o servidor
+                self.neighbours = value["neighbours"]
 
 
     def neighbours_worker(self, addr):
@@ -61,6 +60,7 @@ class Bootstrapper():
             if addr[0] in value["interfaces"]: # é esse o servidor
                 neighbours = value["neighbours"]
 
+        print(addr[0])
         if addr[0] in self.nodes["rp"]:
             servers = self.nodes["servers"]
 
@@ -78,7 +78,7 @@ class Bootstrapper():
 
                 actual_timestamp = float(datetime.now().timestamp())
                 latency = actual_timestamp - message.latency
-                client = message.source_ip
+                client = message.hops[0]
                 neighbour = address[0]
 
                 self.tree_lock.acquire()
@@ -88,12 +88,14 @@ class Bootstrapper():
                     
                     if latency < entry.latency:
                         self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                        self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
+                        self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
+                    
+                    else:
+                        self.tree[client].timestamp = actual_timestamp
+
                 else:
                     self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-                    self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
-
-                self.tree[client].timestamp = actual_timestamp
+                    self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
 
                 self.tree_lock.release()
 
@@ -130,6 +132,22 @@ class Bootstrapper():
             
             self.logger.info(f"Control Service: Message sent to {address[0]}")
             self.logger.debug(f"Message: {msg}")
+        
+        elif message.type == self.STREAM_REQ:
+            ips = set()
+
+            data = self.data_socket.recvfrom(20480)
+
+            self.tree_lock.acquire()
+
+            for tree_entry in self.tree.values():
+                if message.contents in tree_entry.contents:
+                    ips.add(tree_entry.next_step)
+            
+            self.tree_lock.release()
+
+            for ip in ips:
+                self.data_socket.sendto(data, ip)
 
 
     def control_service(self):
@@ -173,11 +191,12 @@ class Bootstrapper():
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-ip", help="bootstrapper ip")
     parser.add_argument("-file", help="bootstrapper file")
     args = parser.parse_args()
 
-    if args.file:
-        Bootstrapper(args.file)
+    if args.file and args.ip:
+        Bootstrapper(args.ip, args.file)
     else:
         print("Error: Wrong arguments")
         exit()

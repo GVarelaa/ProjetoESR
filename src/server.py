@@ -5,12 +5,15 @@ import traceback
 import logging
 import argparse
 import time
+from datetime import datetime
 from random import randint
 from utils.videostream import VideoStream
 from packets.rtppacket import RtpPacket
 from packets.controlpacket import ControlPacket
 
 class Server:
+    MEASURE = 2
+    MEASURE_RESP = 3
     JOIN = 4
     PLAY = 5
     PAUSE = 6
@@ -22,17 +25,17 @@ class Server:
         for file in filenames:
             self.videostreams[file] = VideoStream("../videos/"+file)
             
-        self.rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.rtsp_socket.bind(('', 7777))
+        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.control_socket.bind(('', 7777))
         self.event = threading.Event()
         #self.worker = threading.Thread(target=self.send_rtp).start()
 
         logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
         self.logger = logging.getLogger()
-        self.logger.info(f"Streaming service listening on port {self.rtsp_socket.getsockname()[1]}")
+        self.logger.info(f"Streaming service listening on port {self.control_socket.getsockname()[1]}")
 
 
-    def server_worker(self, addr, msg):
+    def control_worker(self, addr, msg):
         """Process RTSP request sent from the client."""
         # Get the media file name
         #filename = line1[1]
@@ -46,14 +49,23 @@ class Server:
             if filename in self.videostreams:
                 send_stream_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
-                self.rtsp_socket.sendto(msg.serialize(), addr) # É uma response a dizer que recebeu direito, adicionar response
+                #self.control_socket.sendto(msg.serialize(), addr) # É uma response a dizer que recebeu direito, adicionar response
                 
                 # Create a new thread and start sending RTP packets
                 #self.event = threading.Event()
                 threading.Thread(target=self.send_rtp, args=(addr, send_stream_socket, filename)).start()
             else:
                 msg.error = 1
-                self.rtsp_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
+                self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
+        
+        elif msg.type == self.MEASURE:
+            actual_timestamp = float(datetime.now().timestamp())
+            
+            msg = ControlPacket(self.MEASURE_RESP, latency=actual_timestamp, contents=list(self.videostreams.keys()))
+            self.control_socket.sendto(msg.serialize(), addr)
+
+            self.logger.info(f"Control Service: Metrics sent to {addr[0]}")
+            self.logger.debug(f"Message sent: {msg}")
 
 
         # Process SETUP request
@@ -119,16 +131,16 @@ class Server:
     def control_service(self):
         try:
             while True:
-                msg, addr = self.rtsp_socket.recvfrom(1024)
+                msg, addr = self.control_socket.recvfrom(1024)
                 msg = ControlPacket.deserialize(msg)
 
                 self.logger.info(f"Control Service: Message received from {addr[0]}")
                 self.logger.debug(f"Message received: {msg}")
                 
-                threading.Thread(target=self.server_worker, args=(addr, msg,)).start()
+                threading.Thread(target=self.control_worker, args=(addr, msg,)).start()
 
         finally:
-            self.rtsp_socket.close()
+            self.control_socket.close()
 
 
     def send_rtp(self, addr, send_stream_socket, filename):

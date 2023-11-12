@@ -75,7 +75,7 @@ class Node:
 
                 actual_timestamp = float(datetime.now().timestamp())
                 latency = actual_timestamp - message.latency
-                client = message.source_ip
+                client = message.hops[0]
                 neighbour = address[0]
 
                 self.tree_lock.acquire()
@@ -85,12 +85,14 @@ class Node:
                     
                     if latency < entry.latency:
                         self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                        self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
+                        self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
+                    
+                    else:
+                        self.tree[client].timestamp = actual_timestamp
+
                 else:
                     self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-                    self.tree[client] = TreeEntry(message.latency, neighbour, actual_timestamp)
-
-                self.tree[client].timestamp = actual_timestamp
+                    self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
 
                 self.tree_lock.release()
 
@@ -99,7 +101,6 @@ class Node:
                         self.control_socket.sendto(message.serialize(), (neighbour, 7777))
                         self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
                         self.logger.debug(f"Message sent: {message}")
-                        
         
         elif message.type == self.LEAVE:
             self.tree_lock.acquire()
@@ -110,6 +111,22 @@ class Node:
             self.logger.debug(f"Control Service: Client {address} was removed from tree")
 
             self.tree_lock.release()
+        
+        elif message.type == self.STREAM_REQ:
+            ips = set()
+
+            data = self.data_socket.recvfrom(20480)
+
+            self.tree_lock.acquire()
+
+            for tree_entry in self.tree.values():
+                if message.contents in tree_entry.contents:
+                    ips.add(tree_entry.next_step)
+            
+            self.tree_lock.release()
+
+            for ip in ips:
+                self.data_socket.sendto(data, ip)
 
 
     def control_service(self):
@@ -157,7 +174,7 @@ def main():
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
     args = parser.parse_args()
 
-    if args.file:
+    if args.bootstrapper:
         Node(args.bootstrapper)
     else:
         print("Error: Wrong arguments")
