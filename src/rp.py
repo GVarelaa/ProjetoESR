@@ -77,31 +77,62 @@ class RP():
             exit()
 
 
+    def insert_tree(self, message, address):
+        # Insert tree
+        timestamp = float(datetime.now().timestamp())
+        latency = timestamp - message.latency
+        client = message.hops[0]
+        neighbour = address[0]
+
+        self.tree_lock.acquire()
+        
+        if client in self.tree:
+            entry = self.tree[client]
+            
+            if latency < entry.latency:
+                self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
+                self.tree[client] = TreeEntry(timestamp, neighbour, latency, message.contents)
+            
+            else:
+                self.tree[client].timestamp = timestamp
+
+        else:
+            self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
+            self.tree[client] = TreeEntry(timestamp, neighbour, latency, message.contents)
+
+        self.tree_lock.release()
+
+
     def control_worker(self, address, message):
-        if message.type == self.JOIN:
-            if message.flag == 0:
-                actual_timestamp = float(datetime.now().timestamp())
-                latency = actual_timestamp - message.latency
-                client = message.hops[0]
-                neighbour = address[0]
+        if message.type == self.PLAY:
+            #+if message.flag == 0:
+            content = message.contents[0]
 
-                self.tree_lock.acquire()
-                
-                if client in self.tree:
-                    entry = self.tree[client]
-                    
-                    if latency < entry.latency:
-                        self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                        self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
-                    
+            self.insert_tree(message, address)
+
+            # Proteger com condição
+            best_server = None
+
+            print(self.servers_info)
+
+            self.servers_info_lock.acquire()
+
+            for server, measure in self.servers_info.items():
+                if content in measure.contents:
+                    if best_server is not None:
+                        if best_server[1] > measure.metric:
+                            best_server = (measure.server, measure.metric)
                     else:
-                        self.tree[client].timestamp = actual_timestamp
+                        best_server = (measure.server, measure.metric)
+            
+            self.servers_info_lock.release()
 
-                else:
-                    self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-                    self.tree[client] = TreeEntry(actual_timestamp, neighbour, latency, message.contents)
+            message = ControlPacket(self.STREAM_REQ, contents=[content])
+            self.control_socket.sendto(message.serialize(), best_server[0])
 
-                self.tree_lock.release()
+            self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
+            self.logger.debug(f"Message sent: {message}")
+
 
                 # VERIFICAR ISTO
                 #self.control_socket.sendto(ControlPacket(2, flags=1).serialize(), (message.hops[0], 7777))
@@ -123,41 +154,29 @@ class RP():
 
             self.servers_info_lock.acquire()
 
+            print("tou")
             self.servers_info[address[0]] = MeasureEntry(address, latency, message.contents, True) 
 
             self.logger.info(f"Control Service: Metrics from {address} were updated")
 
             self.servers_info_lock.release()
         
-        elif message.type == self.PLAY:
-            best_server = None
-
-            self.servers_info_lock.acquire()
-
-            for server, measure in self.servers_info.items():
-                if message.contents[0] in measure.contents:
-                    if best_server is not None:
-                        if best_server[1] > measure.metric:
-                            best_server = (measure.server, measure.metric)
-                    else:
-                        best_server = (measure.server, measure.metric)
-            
-            self.servers_info_lock.release()
-
-            msg = ControlPacket(self.STREAM_REQ, contents=message.contents)
-            self.control_socket.sendto(msg.serialize(), best_server[0])
-
-            self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
-            self.logger.debug(f"Message sent: {msg}")
-
+        elif message.type == self.STREAM_REQ:
             try:
                 ips = set()
+                content = message.contents[0]
 
+                # CUIDADO COM AS INTERFACES
                 self.tree_lock.acquire()   
                 for tree_entry in self.tree.values():
-                    if message.contents[0] in tree_entry.contents:
+                    if content in tree_entry.contents:
                         ips.add(tree_entry.next_step)
                 self.tree_lock.release()
+
+
+                for ip in ips: 
+                    self.control_socket.sendto(ControlPacket(self.STREAM_REQ, contents=[content]).serialize(), (ip, 7777))
+                    self.logger.info(f"Streaming Service: Comtrol Packet sent to {ip}")
 
                 while True:
                     data, address = self.data_socket.recvfrom(20480)
@@ -168,7 +187,7 @@ class RP():
             
             finally:
                 self.data_socket.close()
-
+        
     
     def control_service(self):
         try:
@@ -225,7 +244,7 @@ class RP():
 
 
     def tracking_service(self):
-        wait = 20
+        wait = 200
         while True:
             for server in self.servers:
                 self.control_socket.sendto(ControlPacket(self.MEASURE).serialize(), (server, 7777))

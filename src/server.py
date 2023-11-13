@@ -46,7 +46,13 @@ class Server:
         if msg.type == self.STREAM_REQ:
             filename = msg.contents[0]
 
+
+            print("ola")
             if filename in self.videostreams:
+                print("entrei")
+                # Confirmação : adicionar response code = 1
+                self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
+
                 send_stream_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
                 #self.control_socket.sendto(msg.serialize(), addr) # É uma response a dizer que recebeu direito, adicionar response

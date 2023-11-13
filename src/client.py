@@ -42,6 +42,8 @@ class Client:
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
         self.setup() # Request neighbours
+
+        threading.Thread(target=self.control_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = 0
@@ -104,19 +106,11 @@ class Client:
         """Play button handler."""
         control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        msg = ControlPacket(self.JOIN, contents=[self.videofile])
+        msg = ControlPacket(self.PLAY, contents=[self.videofile])
         control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
         self.logger.debug(f"Message sent: {msg}")
-
-        msg = ControlPacket(self.PLAY, contents=[self.videofile])
-        control_socket.sendto(msg.serialize(), ("10.0.19.1", 7777))
-
-        self.logger.debug(f"Message sent: {msg}")
         
-        threading.Thread(target=self.listen_rtp).start()
-        self.play_event = threading.Event()
-        self.play_event.clear()
 
 
     def exit_client(self):
@@ -179,6 +173,32 @@ class Client:
             self.exit_client()
         else: # When the user presses cancel, resume playing.
             self.play_movie()
+
+
+    
+    def control_worker(self, address, message):
+        if message.type == self.STREAM_REQ:
+            threading.Thread(target=self.listen_rtp).start()
+            self.play_event = threading.Event()
+            self.play_event.clear()
+
+        
+    
+    def control_service(self):
+        try:
+            self.control_socket.settimeout(None)
+
+            while True:
+                data, address = self.control_socket.recvfrom(1024)
+                message = ControlPacket.deserialize(data)
+
+                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {message}")
+
+                threading.Thread(target=self.control_worker, args=(address, message,)).start()
+
+        finally:
+            self.control_socket.close()
 
 
 def main():
