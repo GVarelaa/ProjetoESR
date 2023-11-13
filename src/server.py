@@ -8,18 +8,10 @@ import time
 from datetime import datetime
 from random import randint
 from utils.videostream import VideoStream
-from packets.rtppacket import RtpPacket
-from packets.controlpacket import ControlPacket
+from packets.rtp_packet import RtpPacket
+from packets.control_packet import ControlPacket
 
 class Server:
-    MEASURE = 2
-    MEASURE_RESP = 3
-    JOIN = 4
-    PLAY = 5
-    PAUSE = 6
-    LEAVE = 7
-    STREAM_REQ = 8
-
     def __init__(self, filenames):
         self.videostreams = dict()
         for file in filenames:
@@ -43,11 +35,9 @@ class Server:
         # Get the RTSP sequence number 
         #seq = request[1].split(' ')
         
-        if msg.type == self.STREAM_REQ:
+        if msg.type == ControlPacket.PLAY and msg.response == 1:
             filename = msg.contents[0]
 
-
-            print("ola")
             if filename in self.videostreams:
                 print("entrei")
                 # Confirmação : adicionar response code = 1
@@ -64,10 +54,10 @@ class Server:
                 msg.error = 1
                 self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
         
-        elif msg.type == self.MEASURE:
+        elif msg.type == ControlPacket.STATUS and msg.response == 0:
             actual_timestamp = float(datetime.now().timestamp())
             
-            msg = ControlPacket(self.MEASURE_RESP, latency=actual_timestamp, contents=list(self.videostreams.keys()))
+            msg = ControlPacket(ControlPacket.STATUS, response=1, latency=actual_timestamp, contents=list(self.videostreams.keys()))
             self.control_socket.sendto(msg.serialize(), addr)
 
             self.logger.info(f"Control Service: Metrics sent to {addr[0]}")
@@ -165,11 +155,16 @@ class Server:
                 try:
                     packet =  self.make_rtp(data, frame_nr)
                     send_stream_socket.sendto(packet, (addr[0], 7778))
+
+                    self.logger.debug(f"Streaming Service: RTP Packet {frame_nr} sent to {addr[0]}")
                 except:
                     print("Connection Error")
                     print('-'*60)
                     traceback.print_exc(file=sys.stdout)
                     print('-'*60)
+            else:
+                self.logger.debug(f"Streaming Service: All RTP Packet were sent to {addr[0]}")
+                break #Podemos fazer isto?
 
 
     def make_rtp(self, payload, frame_nr):
@@ -187,7 +182,6 @@ class Server:
         rtpPacket = RtpPacket()
         
         rtpPacket.encode(version, padding, extension, cc, seqnum, marker, pt, ssrc, payload)
-        print("Encoding RTP Packet: " + str(seqnum))
         
         return rtpPacket.get_packet()
 

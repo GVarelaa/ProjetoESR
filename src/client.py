@@ -6,20 +6,13 @@ from datetime import datetime
 from tkinter import *
 import tkinter.messagebox
 from PIL import Image, ImageTk
-from packets.controlpacket import ControlPacket
-from packets.rtppacket import RtpPacket
+from packets.control_packet import ControlPacket
+from packets.rtp_packet import RtpPacket
 
 CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
 
 class Client:
-    NEIGHBOURS_RESP = 1
-    JOIN = 4
-    PLAY = 5
-    PAUSE = 6
-    LEAVE = 7
-    STREAM_REQ = 8
-
     def __init__(self, master, bootstrapper, videofile):
         self.master = master
         self.videofile = videofile
@@ -79,17 +72,17 @@ class Client:
 
 
     def setup(self):
-        self.control_socket.sendto(ControlPacket(0).serialize(), self.bootstrapper)
+        self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
         self.logger.info("Setup: Asked for neighbours")
 
         try:
             self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
 
             data, _ = self.control_socket.recvfrom(1024)
-            response = ControlPacket.deserialize(data)
+            msg = ControlPacket.deserialize(data)
 
-            if response.type == self.NEIGHBOURS_RESP:
-                self.neighbour = response.neighbours[0]
+            if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                self.neighbour = msg.neighbours[0]
                 self.logger.info("Setup: Neighbours received")
                 self.logger.debug(f"Neighbours: {self.neighbour}")
             
@@ -106,7 +99,7 @@ class Client:
         """Play button handler."""
         control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        msg = ControlPacket(self.PLAY, contents=[self.videofile])
+        msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
         control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
         self.logger.debug(f"Message sent: {msg}")
@@ -128,17 +121,18 @@ class Client:
         """Listen for RTP packets."""
         while True:
             try:
-                data = self.data_socket.recv(20480)
+                data, addr = self.data_socket.recvfrom(20480)
                 if data:
                     rtp_packet = RtpPacket()
                     rtp_packet.decode(data)
                     
                     curr_frame_nr = rtp_packet.get_seq_num()
-                    print("Current Seq Num: " + str(curr_frame_nr))
+                    self.logger.debug(f"Streaming Service: RTP Packet {curr_frame_nr} received from {addr[0]}")
                                         
                     if curr_frame_nr > self.frame_nr: # Discard the late packet
                         self.frame_nr = curr_frame_nr
                         self.update_movie(self.write_frame(rtp_packet.get_payload()))
+            
             except:
                 # Stop listening upon requesting PAUSE or TEARDOWN
                 if self.play_event.isSet(): 
@@ -175,15 +169,13 @@ class Client:
             self.play_movie()
 
 
-    
-    def control_worker(self, address, message):
-        if message.type == self.STREAM_REQ:
+    def control_worker(self, address, msg):
+        if msg.type == ControlPacket.PLAY and msg.response == 1:
             threading.Thread(target=self.listen_rtp).start()
             self.play_event = threading.Event()
             self.play_event.clear()
 
         
-    
     def control_service(self):
         try:
             self.control_socket.settimeout(None)

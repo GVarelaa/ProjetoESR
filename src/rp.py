@@ -4,21 +4,11 @@ import logging
 import time
 import socket
 from datetime import datetime
-from packets.controlpacket import ControlPacket
+from packets.control_packet import ControlPacket
 from utils.tree_entry import TreeEntry
-from utils.measure_entry import MeasureEntry
+from utils.status_entry import StatusEntry
 
 class RP():
-    NEIGHBOURS = 0
-    NEIGHBOURS_RESP = 1
-    MEASURE = 2
-    MEASURE_RESP = 3
-    JOIN = 4
-    PLAY = 5
-    PAUSE = 6
-    LEAVE = 7
-    STREAM_REQ = 8
-
     def __init__(self, bootstrapper):
         self.neighbours = list()
         self.servers = list()
@@ -51,18 +41,18 @@ class RP():
 
     
     def setup(self):
-        self.control_socket.sendto(ControlPacket(0).serialize(), self.bootstrapper)
+        self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
         self.logger.info("Setup: Asked for neighbours and servers")
 
         try:
             self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
 
             data, _ = self.control_socket.recvfrom(1024)
-            response = ControlPacket.deserialize(data)
+            msg = ControlPacket.deserialize(data)
 
-            if response.type == self.NEIGHBOURS_RESP:
-                self.neighbours = response.neighbours
-                self.servers = response.servers
+            if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                self.neighbours = msg.neighbours
+                self.servers = msg.servers
                 
                 self.logger.info("Setup: Neighbours and servers received")
                 self.logger.debug(f"Neighbours: {self.neighbours}")
@@ -104,41 +94,71 @@ class RP():
 
 
     def control_worker(self, address, message):
-        if message.type == self.PLAY:
-            #+if message.flag == 0:
-            content = message.contents[0]
+        if message.type == ControlPacket.PLAY:
+            if message.response == 0:
+                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {message}")
 
-            self.insert_tree(message, address)
+                content = message.contents[0]
 
-            # Proteger com condição
-            best_server = None
+                self.insert_tree(message, address)
 
-            print(self.servers_info)
+                # Proteger com condição
+                best_server = None
 
-            self.servers_info_lock.acquire()
+                self.servers_info_lock.acquire()
 
-            for server, measure in self.servers_info.items():
-                if content in measure.contents:
-                    if best_server is not None:
-                        if best_server[1] > measure.metric:
-                            best_server = (measure.server, measure.metric)
-                    else:
-                        best_server = (measure.server, measure.metric)
-            
-            self.servers_info_lock.release()
+                for server, status in self.servers_info.items():
+                    if content in status.contents:
+                        if best_server is not None:
+                            if best_server[1] > status.metric:
+                                best_server = (status.server, status.metric)
+                        else:
+                            best_server = (status.server, status.metric)
+                
+                self.servers_info_lock.release()
 
-            message = ControlPacket(self.STREAM_REQ, contents=[content])
-            self.control_socket.sendto(message.serialize(), best_server[0])
+                message = ControlPacket(ControlPacket.PLAY, response=1, contents=[content])
+                self.control_socket.sendto(message.serialize(), best_server[0])
 
-            self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
-            self.logger.debug(f"Message sent: {message}")
-
+                self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
+                self.logger.debug(f"Message sent: {message}")
 
                 # VERIFICAR ISTO
                 #self.control_socket.sendto(ControlPacket(2, flags=1).serialize(), (message.hops[0], 7777))
                 #self.logger.info(f"Control Service: Tree subscription confirmation message sent to {message.hops[0]}")
         
-        elif message.type == self.LEAVE:
+            elif message.response == 1:
+                try:
+                    ips = set()
+                    content = message.contents[0]
+
+                    # CUIDADO COM AS INTERFACES
+                    self.tree_lock.acquire()   
+                    for tree_entry in self.tree.values():
+                        if content in tree_entry.contents:
+                            ips.add(tree_entry.next_step)
+                    self.tree_lock.release()
+
+
+                    for ip in ips: 
+                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, contents=[content]).serialize(), (ip, 7777))
+                        self.logger.info(f"Streaming Service: Control Packet sent to {ip}")
+
+                    while True:
+                        data, address = self.data_socket.recvfrom(20480)
+                    
+                        for ip in ips:
+                            self.data_socket.sendto(data, (ip, 7778))
+                            self.logger.debug(f"Streaming Service: RTP Packet sent to {ip}")
+                
+                finally:
+                    self.data_socket.close()
+        
+        elif message.type == ControlPacket.LEAVE:
+            self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
+            self.logger.debug(f"Message received: {message}")
+
             self.tree_lock.acquire()
 
             if address in self.tree:
@@ -148,45 +168,20 @@ class RP():
 
             self.tree_lock.release()
 
-        elif message.type == self.MEASURE_RESP:
+        elif message.type == ControlPacket.STATUS and message.response == 1:
+            self.logger.info(f"Control Service: Status response received from server {address[0]}")
+            self.logger.debug(f"Message received: {message}")
+
             actual_timestamp = float(datetime.now().timestamp())
             latency = actual_timestamp - message.latency
 
             self.servers_info_lock.acquire()
 
-            print("tou")
-            self.servers_info[address[0]] = MeasureEntry(address, latency, message.contents, True) 
+            self.servers_info[address[0]] = StatusEntry(address, latency, message.contents, True) 
 
-            self.logger.info(f"Control Service: Metrics from {address} were updated")
+            self.logger.info(f"Control Service: Status from {address} was updated")
 
             self.servers_info_lock.release()
-        
-        elif message.type == self.STREAM_REQ:
-            try:
-                ips = set()
-                content = message.contents[0]
-
-                # CUIDADO COM AS INTERFACES
-                self.tree_lock.acquire()   
-                for tree_entry in self.tree.values():
-                    if content in tree_entry.contents:
-                        ips.add(tree_entry.next_step)
-                self.tree_lock.release()
-
-
-                for ip in ips: 
-                    self.control_socket.sendto(ControlPacket(self.STREAM_REQ, contents=[content]).serialize(), (ip, 7777))
-                    self.logger.info(f"Streaming Service: Comtrol Packet sent to {ip}")
-
-                while True:
-                    data, address = self.data_socket.recvfrom(20480)
-                 
-                    for ip in ips:
-                        self.data_socket.sendto(data, (ip, 7778))
-                        self.logger.info(f"Streaming Service: Rtp Packet sent to {ip}")
-            
-            finally:
-                self.data_socket.close()
         
     
     def control_service(self):
@@ -196,9 +191,6 @@ class RP():
             while True:
                 data, address = self.control_socket.recvfrom(1024)
                 message = ControlPacket.deserialize(data)
-
-                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
 
                 threading.Thread(target=self.control_worker, args=(address, message,)).start()
 
@@ -244,10 +236,10 @@ class RP():
 
 
     def tracking_service(self):
-        wait = 200
+        wait = 20
         while True:
             for server in self.servers:
-                self.control_socket.sendto(ControlPacket(self.MEASURE).serialize(), (server, 7777))
+                self.control_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
 
                 self.logger.info(f"Tracking Service: Monitorization message sent to {server}")
                     
