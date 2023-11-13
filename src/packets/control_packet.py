@@ -8,25 +8,36 @@ class ControlPacket:
     PAUSE = 3
     LEAVE = 4
 
-    def __init__(self, msg_type, response=0, error=0, latency=0, hops=list(), neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, error=0, latency=0, source_ip="", last_hop="", neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
-        self.response = response #Alterar para bit
-        self.error = error #Alterar para bit
+        self.response = response # Alterar para bit
+        self.error = error # Alterar para bit
         self.latency = latency
+        self.source_ip = source_ip
+        self.last_hop = last_hop
         # Data
-        self.hops = hops
         self.servers = servers
         self.neighbours = neighbours
         self.contents = contents
 
     
     def __str__(self):
-        return f"Type: {self.type} | Response: {self.response} | Error: {self.error} | Latency: {self.latency} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | Error: {self.error} | Latency: {self.latency} | Source IP: {self.source_ip} | Last Hop: {self.last_hop} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def __repr__(self):
-        return f"Type: {self.type} | Response: {self.response} | Error: {self.error} | Latency: {self.latency} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | Error: {self.error} | Latency: {self.latency} | Source IP: {self.source_ip} | Last Hop: {self.last_hop} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+
+
+    def serialize_ip(self, ip):
+        byte_array = bytearray()
+        ip_splitted = ip.split(':')
+
+        for number in ip_splitted:
+            byte_array += int(number).to_bytes(1, 'big')
+        
+        return byte_array
 
 
     def serialize(self):
@@ -45,8 +56,11 @@ class ControlPacket:
         # Latency - 8 bytes
         byte_array += struct.pack('>d', self.latency)
 
-        # Number of hops - 1 bytes
-        byte_array += len(self.hops).to_bytes(1, 'big')
+        # Source IP - 4 bytes
+        byte_array += self.serialize_ip(self.source_ip)
+
+        # Last Hop - 4 bytes
+        byte_array += self.serialize_ip(self.last_hop)
 
         # Number of servers - 1 bytes
         byte_array += len(self.servers).to_bytes(1, 'big')
@@ -58,31 +72,35 @@ class ControlPacket:
         byte_array += len(self.contents).to_bytes(1, 'big')
         
         # Data
-        # Hops
-        for hop in self.hops:
-            # Tamanho string hop - 1 byte
-            byte_array += len(hop).to_bytes(1, 'big')
-            byte_array += hop.encode('utf-8')
-        
         # Servers
         for server in self.servers:
-            # Tamanho string server - 1 byte
-            byte_array += len(server).to_bytes(1, 'big')
-            byte_array += server.encode('utf-8')
+            # IP - 4 bytes
+            byte_array += self.serialize_ip(server)
 
         # Neighbours
         for neighbour in self.neighbours:
-            # Tamanho string content - 1 byte
-            byte_array += len(neighbour).to_bytes(1, 'big')
-            byte_array += neighbour.encode('utf-8')
+            # IP - 4 bytes
+            byte_array += self.serialize_ip(server)
 
         # Contents
         for content in self.contents:
-            # Tamanho string content - 1 byte
-            byte_array += len(content).to_bytes(1, 'big')
-            byte_array += content.encode('utf-8')
+            # IP - 4 bytes
+            byte_array += self.serialize_ip(server)
 
         return byte_array
+
+
+    @staticmethod
+    def deserialize_ip(bytes):
+        byte_array = io.BytesIO(bytes)
+
+        octect1 = int.from_bytes(byte_array.read(1), byteorder='big')
+        octect2 = int.from_bytes(byte_array.read(1), byteorder='big')
+        octect3 = int.from_bytes(byte_array.read(1), byteorder='big')
+        octect4 = int.from_bytes(byte_array.read(1), byteorder='big')
+
+        return str(octect1) + '.' + str(octect2) + '.' + str(octect3) + '.' + str(octect4)
+
 
     @staticmethod
     def deserialize(bytes):
@@ -92,32 +110,25 @@ class ControlPacket:
         response = int.from_bytes(byte_array.read(1), byteorder='big')
         error = int.from_bytes(byte_array.read(1), byteorder='big')
         latency = struct.unpack('>d', byte_array.read(8))[0]
+        source_ip = ControlPacket.deserialize_ip(byte_array.read(4))
+        last_hop = ControlPacket.deserialize_ip(byte_array.read(4))
 
-        nr_hops = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_servers = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_neighbours = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_contents = int.from_bytes(byte_array.read(1), byteorder='big')
 
-        hops = list()
         servers = list()
         neighbours = list()
         contents = list()
 
-        for _ in range(nr_hops):
-            string_len = int.from_bytes(byte_array.read(1), byteorder='big')
-            hops.append(byte_array.read(string_len).decode('utf-8'))
-
         for _ in range(nr_servers):
-            string_len = int.from_bytes(byte_array.read(1), byteorder='big')
-            servers.append(byte_array.read(string_len).decode('utf-8'))
+            servers.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
         for _ in range(nr_neighbours):
-            string_len = int.from_bytes(byte_array.read(1), byteorder='big')
-            neighbours.append(byte_array.read(string_len).decode('utf-8'))
+            neighbours.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
         for _ in range(nr_contents):
-            string_len = int.from_bytes(byte_array.read(1), byteorder='big')
-            contents.append(byte_array.read(string_len).decode('utf-8'))
+            contents.append(ControlPacket.deserialize_ip(byte_array.read(4)))
         
-        return ControlPacket(msg_type, response=response, error=error, latency=latency, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
+        return ControlPacket(msg_type, response=response, error=error, latency=latency, source_ip= source_ip, last_hop=last_hop, servers=servers, neighbours=neighbours, contents=contents)
     

@@ -4,39 +4,21 @@ import logging
 import time
 import socket
 from datetime import datetime
+from node import Node
 from packets.control_packet import ControlPacket
 from utils.tree_entry import TreeEntry
 from utils.status_entry import StatusEntry
 
-class RP():
+class RP(Node):
     def __init__(self, bootstrapper):
-        self.neighbours = list()
+        super().__init__(bootstrapper)
+        
         self.servers = list()
-
-        self.tree_lock = threading.Lock()
-        self.tree = dict()
 
         self.servers_info_lock = threading.Lock()
         self.servers_info = dict()
 
-        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        self.control_socket.bind(("", 7777))
-        self.data_socket.bind(("", 7778))
-    
-        address = bootstrapper.split(":")
-        self.bootstrapper = (address[0], int(address[1]))
-
-        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
-        self.logger = logging.getLogger()
-        self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
-
-        self.setup() # Request neighbours
-
         # Services
-        threading.Thread(target=self.pruning_service, args=()).start()
-        threading.Thread(target=self.control_service, args=()).start()
         threading.Thread(target=self.tracking_service, args=()).start()
 
     
@@ -65,32 +47,6 @@ class RP():
         except socket.timeout:
             self.logger.info("Setup: Could not receive response to neighbours and servers request")
             exit()
-
-
-    def insert_tree(self, message, address):
-        # Insert tree
-        timestamp = float(datetime.now().timestamp())
-        latency = timestamp - message.latency
-        client = message.hops[0]
-        neighbour = address[0]
-
-        self.tree_lock.acquire()
-        
-        if client in self.tree:
-            entry = self.tree[client]
-            
-            if latency < entry.latency:
-                self.logger.debug(f"Control Service: Changing from neighbour {entry.next_step} to neighbour {neighbour}")
-                self.tree[client] = TreeEntry(timestamp, neighbour, latency, message.contents)
-            
-            else:
-                self.tree[client].timestamp = timestamp
-
-        else:
-            self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-            self.tree[client] = TreeEntry(timestamp, neighbour, latency, message.contents)
-
-        self.tree_lock.release()
 
 
     def control_worker(self, address, message):
@@ -182,57 +138,6 @@ class RP():
             self.logger.info(f"Control Service: Status from {address} was updated")
 
             self.servers_info_lock.release()
-        
-    
-    def control_service(self):
-        try:
-            self.control_socket.settimeout(None)
-
-            while True:
-                data, address = self.control_socket.recvfrom(1024)
-                message = ControlPacket.deserialize(data)
-
-                threading.Thread(target=self.control_worker, args=(address, message,)).start()
-
-        finally:
-            self.control_socket.close()
-    
-
-    """
-    def streaming_service(self):
-        try:
-            while True:
-                data, address = self.data_socket.recvfrom(1024)
-
-                self.logger.info(f"Streaming Service: Rtp Packet received from server {address[0]}")
-
-                threading.Thread(target=self.streaming_worker, args=(address, message,)).start()
-
-        finally:
-            self.control_socket.close()
-    """
-
-    def pruning_service(self):
-        wait = 20 # 20 segundos
-        while True:
-            timestamp = float(datetime.now().timestamp())
-            
-            self.tree_lock.acquire()
-
-            to_remove = list()
-
-            for key, value in self.tree.items():
-                if timestamp - value.timestamp >= wait:
-                    to_remove.append(key)
-
-                    self.logger.debug(f"Pruning Service: Client {key} was removed from tree")
-            
-            for key in to_remove:
-                self.tree.pop(key)
-
-            self.tree_lock.release()
-
-            time.sleep(wait)
 
 
     def tracking_service(self):
@@ -243,7 +148,8 @@ class RP():
 
                 self.logger.info(f"Tracking Service: Monitorization message sent to {server}")
                     
-            time.sleep(wait)
+            time.sleep(wait) 
+
 
 def main():
     parser = argparse.ArgumentParser()

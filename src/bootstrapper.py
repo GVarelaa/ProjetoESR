@@ -46,7 +46,7 @@ class Bootstrapper():
         # Insert tree
         timestamp = float(datetime.now().timestamp())
         latency = timestamp - message.latency
-        client = message.hops[0]
+        client = message.source_ip
         neighbour = address[0]
 
         self.tree_lock.acquire()
@@ -71,7 +71,8 @@ class Bootstrapper():
     def control_worker(self, address, message):
         if message.type == ControlPacket.PLAY:
             if message.response == 0:
-                message.hops.append(address[0])
+                message.last_hop = address[0]
+                
                 self.insert_tree(message, address)
 
                 for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)

@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from packets.control_packet import ControlPacket
 from utils.tree_entry import TreeEntry
+from abc import abstractmethod
 
 class Node:
     def __init__(self, bootstrapper):
@@ -34,6 +35,7 @@ class Node:
         threading.Thread(target=self.control_service, args=()).start()
         
 
+    @abstractmethod
     def setup(self):
         self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
         self.logger.info("Setup: Asked for neighbours")
@@ -62,7 +64,7 @@ class Node:
         # Insert tree
         timestamp = float(datetime.now().timestamp())
         latency = timestamp - message.latency
-        client = message.hops[0]
+        client = message.source_ip
         neighbour = address[0]
 
         self.tree_lock.acquire()
@@ -84,10 +86,15 @@ class Node:
         self.tree_lock.release()
 
 
+    @abstractmethod
     def control_worker(self, address, msg):
         if msg.type == ControlPacket.PLAY:
             if msg.response == 0:
-                msg.hops.append(address[0])
+                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {message}")
+
+                msg.last_hop = address[0]
+
                 self.insert_tree(msg, address)
 
                 for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
@@ -123,6 +130,9 @@ class Node:
                     self.data_socket.close()
         
         elif msg.type == ControlPacket.LEAVE:
+            self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
+            self.logger.debug(f"Message received: {message}")
+
             self.tree_lock.acquire()
 
             if address in self.tree:
@@ -140,9 +150,6 @@ class Node:
             while True:
                 data, address = self.control_socket.recvfrom(1024)
                 message = ControlPacket.deserialize(data)
-
-                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
 
                 threading.Thread(target=self.control_worker, args=(address, message,)).start()
 
