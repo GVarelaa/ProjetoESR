@@ -8,7 +8,7 @@ class VideoStream:
 			raise IOError
 		
 		self.frame_nr = 0
-		
+
 
 	def get_next_frame(self):
 		"""Get next frame."""
@@ -20,6 +20,10 @@ class VideoStream:
 			# Read the current frame
 			data = self.file.read(frame_length)
 			self.frame_nr += 1
+
+		else:
+			self.file.seek(0)
+			data = self.get_next_frame()
 		
 		return data
 	

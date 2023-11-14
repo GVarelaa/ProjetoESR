@@ -1,5 +1,6 @@
 import argparse
-import socket, threading, sys, traceback, os
+import socket
+import threading
 import logging
 import time
 from datetime import datetime
@@ -105,7 +106,6 @@ class Client:
         self.logger.debug(f"Message sent: {msg}")
         
 
-
     def exit_client(self):
         """Teardown button handler."""
         self.master.destroy() # Close the gui window
@@ -128,7 +128,7 @@ class Client:
                     
                     curr_frame_nr = rtp_packet.get_seq_num()
                     self.logger.debug(f"Streaming Service: RTP Packet {curr_frame_nr} received from {addr[0]}")
-                                        
+
                     if curr_frame_nr > self.frame_nr: # Discard the late packet
                         self.frame_nr = curr_frame_nr
                         self.update_movie(self.write_frame(rtp_packet.get_payload()))
@@ -212,62 +212,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-import threading
-import socket
-import time
-from datetime import datetime
-from .node import Node
-from message import Message
-from exceptions import *
-
-class Client(Node):
-    def __init__(self, bootstrapper):
-        super().__init__(bootstrapper=bootstrapper)
-
-        self.polling_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.polling_socket.bind(("", 7779))
-
-    
-    def polling_service(self):
-        try:
-            wait = 100 # 100 segundos
-            
-            while True:
-                msg = Message(2, timestamp=float(datetime.now().timestamp()))
-
-                try:
-                    self.logger.info(f"Subscription Service: Subscription message sent to neighbour {self.database.neighbours[0]}")
-                    self.logger.debug(f"Message sent: {msg}") 
-
-                    response = self.send_udp(msg, 3, 2, "Subscription Service", (self.database.neighbours[0], 7777), self.polling_socket)
-
-                    if response.flag == 1: 
-                        self.logger.info("Subscription Service: Acknowledgment received")
-
-                    time.sleep(wait)
-                except ACKFailed:
-                    self.logger.info("Subscription Service: Could not receive an acknowledgment from subscription request after 3 retries")
-                    exit() # É este o comportamento que queremos ?
-        
-        finally:
-            self.polling_socket.close()
-
-
-    def control_service(self):
-        try:
-            self.control_socket.settimeout(None)
-
-            while True:
-                msg, addr = self.control_socket.recvfrom(1024)
-                msg = Message.deserialize(msg)
-
-                self.logger.info(f"Control Service: Subscription message received from neighbour {addr[0]}")
-                self.logger.debug(f"Message received: {msg}")
-                
-                # Completar - receber erros de subscrição ?
-            
-        finally:
-            self.control_socket.close()
-"""

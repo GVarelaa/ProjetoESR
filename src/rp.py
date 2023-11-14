@@ -101,7 +101,7 @@ class RP(Node):
                 
                 self.servers_info_lock.release()
 
-                message = ControlPacket(ControlPacket.PLAY, response=1, contents=[content])
+                message = ControlPacket(ControlPacket.PLAY, contents=[content])
                 self.control_socket.sendto(message.serialize(), best_server[0]) # Proteger para casos em que ainda nao tem best server
 
                 self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
