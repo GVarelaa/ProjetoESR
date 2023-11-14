@@ -8,7 +8,7 @@ class ControlPacket:
     PAUSE = 3
     LEAVE = 4
 
-    def __init__(self, msg_type, response=0, error=0, latency=0, source_ip="", last_hop="", neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, error=0, latency=0, source_ip="0.0.0.0", last_hop="0.0.0.0", neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.response = response # Alterar para bit
@@ -32,7 +32,7 @@ class ControlPacket:
 
     def serialize_ip(self, ip):
         byte_array = bytearray()
-        ip_splitted = ip.split(':')
+        ip_splitted = ip.split('.')
 
         for number in ip_splitted:
             byte_array += int(number).to_bytes(1, 'big')
@@ -80,12 +80,13 @@ class ControlPacket:
         # Neighbours
         for neighbour in self.neighbours:
             # IP - 4 bytes
-            byte_array += self.serialize_ip(server)
+            byte_array += self.serialize_ip(neighbour)
 
         # Contents
         for content in self.contents:
-            # IP - 4 bytes
-            byte_array += self.serialize_ip(server)
+            # Tamanho string content - 1 byte
+            byte_array += len(content).to_bytes(1, 'big')
+            byte_array += content.encode('utf-8')
 
         return byte_array
 
@@ -128,7 +129,8 @@ class ControlPacket:
             neighbours.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
         for _ in range(nr_contents):
-            contents.append(ControlPacket.deserialize_ip(byte_array.read(4)))
+            string_len = int.from_bytes(byte_array.read(1), byteorder='big')
+            contents.append(byte_array.read(string_len).decode('utf-8'))
         
         return ControlPacket(msg_type, response=response, error=error, latency=latency, source_ip= source_ip, last_hop=last_hop, servers=servers, neighbours=neighbours, contents=contents)
     

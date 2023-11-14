@@ -1,4 +1,5 @@
 import argparse
+import json
 import time
 import socket
 import threading
@@ -9,7 +10,12 @@ from utils.tree_entry import TreeEntry
 from abc import abstractmethod
 
 class Node:
-    def __init__(self, bootstrapper):
+    def __init__(self, bootstrapper, is_bootstrapper=False, file=None):
+        self.is_bootstrapper = is_bootstrapper
+        if is_bootstrapper:
+            with open(file) as f:
+                self.nodes = json.load(f)
+
         self.neighbours = list()
 
         self.tree_lock = threading.Lock()
@@ -37,31 +43,36 @@ class Node:
 
     @abstractmethod
     def setup(self):
-        self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
-        self.logger.info("Setup: Asked for neighbours")
+        if self.is_bootstrapper:
+            for key, value in self.nodes["nodes"].items():
+                if self.bootstrapper in value["interfaces"]: # é esse o servidor
+                    self.neighbours = value["neighbours"]
 
-        try:
-            self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+        else:
+            self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+            self.logger.info("Setup: Asked for neighbours")
 
-            data, _ = self.control_socket.recvfrom(1024)
-            msg = ControlPacket.deserialize(data)
+            try:
+                self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
 
-            if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
-                self.neighbours = msg.neighbours
-                self.logger.info("Setup: Neighbours received")
-                self.logger.debug(f"Neighbours: {self.neighbours}")
-            
-            else:
-                self.logger.info("Setup: Unexpected response received")
-                exit() # É este o comportamento que queremos ?
-            
-        except socket.timeout:
-            self.logger.info("Setup: Could not receive response to neighbours request")
-            exit()
+                data, _ = self.control_socket.recvfrom(1024)
+                msg = ControlPacket.deserialize(data)
+
+                if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                    self.neighbours = msg.neighbours
+                    self.logger.info("Setup: Neighbours received")
+                    self.logger.debug(f"Neighbours: {self.neighbours}")
+                
+                else:
+                    self.logger.info("Setup: Unexpected response received")
+                    exit() # É este o comportamento que queremos ?
+                
+            except socket.timeout:
+                self.logger.info("Setup: Could not receive response to neighbours request")
+                exit()
     
 
     def insert_tree(self, message, address):
-        # Insert tree
         timestamp = float(datetime.now().timestamp())
         latency = timestamp - message.latency
         client = message.source_ip
@@ -88,12 +99,32 @@ class Node:
 
     @abstractmethod
     def control_worker(self, address, msg):
-        if msg.type == ControlPacket.PLAY:
+        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
+            neighbours = list()
+            servers = list()
+
+            for key, value in self.nodes["nodes"].items():
+                if address[0] in value["interfaces"]: # é esse o servidor
+                    neighbours = value["neighbours"]
+
+            if address[0] in self.nodes["rp"]:
+                servers = self.nodes["servers"]
+
+            msg = ControlPacket(ControlPacket.NEIGHBOURS, response=1, servers=servers, neighbours=neighbours)
+            self.control_socket.sendto(msg.serialize(), address)
+            
+            self.logger.info(f"Control Service: Message sent to {address[0]}")
+            self.logger.debug(f"Message: {msg}")
+
+        elif msg.type == ControlPacket.PLAY:
             if msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {message}")
 
                 msg.last_hop = address[0]
+
+                if msg.source_ip == "0.0.0.0":
+                    msg.source_ip = address[0]
 
                 self.insert_tree(msg, address)
 
@@ -117,7 +148,7 @@ class Node:
 
                     for ip in ips: 
                         self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, contents=[content]).serialize(), (ip, 7777))
-                        self.logger.info(f"Streaming Service: Comtrol Packet sent to {ip}")
+                        self.logger.info(f"Streaming Service: Control Packet sent to {ip}")
 
                     while True:
                         data, address = self.data_socket.recvfrom(20480)
@@ -183,9 +214,13 @@ class Node:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
+    parser.add_argument("-file", help="bootstrapper file")
     args = parser.parse_args()
 
-    if args.bootstrapper:
+    if args.file:
+        Node(args.bootstrapper, is_bootstrapper=True, file=args.file)
+        
+    elif args.bootstrapper:
         Node(args.bootstrapper)
     else:
         print("Error: Wrong arguments")

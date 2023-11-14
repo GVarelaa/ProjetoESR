@@ -1,4 +1,5 @@
 import argparse
+import json
 import threading
 import logging
 import time
@@ -10,52 +11,78 @@ from utils.tree_entry import TreeEntry
 from utils.status_entry import StatusEntry
 
 class RP(Node):
-    def __init__(self, bootstrapper):
-        super().__init__(bootstrapper)
-        
+    def __init__(self, bootstrapper, is_bootstrapper=False, file=None):        
         self.servers = list()
 
         self.servers_info_lock = threading.Lock()
         self.servers_info = dict()
+
+        super().__init__(bootstrapper, is_bootstrapper=is_bootstrapper, file=file)
 
         # Services
         threading.Thread(target=self.tracking_service, args=()).start()
 
     
     def setup(self):
-        self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
-        self.logger.info("Setup: Asked for neighbours and servers")
+        if self.is_bootstrapper:
+            for key, value in self.nodes["nodes"].items():
+                if self.bootstrapper in value["interfaces"]: # é esse o servidor
+                    self.neighbours = value["neighbours"]
+        
+        else:
+            self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+            self.logger.info("Setup: Asked for neighbours and servers")
 
-        try:
-            self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+            try:
+                self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
 
-            data, _ = self.control_socket.recvfrom(1024)
-            msg = ControlPacket.deserialize(data)
+                data, _ = self.control_socket.recvfrom(1024)
+                msg = ControlPacket.deserialize(data)
 
-            if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
-                self.neighbours = msg.neighbours
-                self.servers = msg.servers
+                if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                    self.neighbours = msg.neighbours
+                    self.servers = msg.servers
+                    
+                    self.logger.info("Setup: Neighbours and servers received")
+                    self.logger.debug(f"Neighbours: {self.neighbours}")
+                    self.logger.debug(f"Servers: {self.servers}")
                 
-                self.logger.info("Setup: Neighbours and servers received")
-                self.logger.debug(f"Neighbours: {self.neighbours}")
-                self.logger.debug(f"Servers: {self.servers}")
-            
-            else:
-                self.logger.info("Setup: Unexpected response received")
-                exit() # É este o comportamento que queremos ?
-            
-        except socket.timeout:
-            self.logger.info("Setup: Could not receive response to neighbours and servers request")
-            exit()
+                else:
+                    self.logger.info("Setup: Unexpected response received")
+                    exit() # É este o comportamento que queremos ?
+                
+            except socket.timeout:
+                self.logger.info("Setup: Could not receive response to neighbours and servers request")
+                exit()
 
 
     def control_worker(self, address, message):
-        if message.type == ControlPacket.PLAY:
+        if self.is_bootstrapper and message.type == ControlPacket.NEIGHBOURS and message.response == 0:
+            neighbours = list()
+            servers = list()
+
+            for key, value in self.nodes["nodes"].items():
+                if address[0] in value["interfaces"]: # é esse o servidor
+                    neighbours = value["neighbours"]
+
+            if address[0] in self.nodes["rp"]:
+                servers = self.nodes["servers"]
+
+            msg = ControlPacket(ControlPacket.NEIGHBOURS, response=1, servers=servers, neighbours=neighbours)
+            self.control_socket.sendto(msg.serialize(), address)
+            
+            self.logger.info(f"Control Service: Message sent to {address[0]}")
+            self.logger.debug(f"Message: {msg}")
+        
+        elif message.type == ControlPacket.PLAY:
             if message.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {message}")
 
                 content = message.contents[0]
+
+                if message.source_ip == "0.0.0.0":
+                    message.source_ip = address[0]
 
                 self.insert_tree(message, address)
 
@@ -75,7 +102,7 @@ class RP(Node):
                 self.servers_info_lock.release()
 
                 message = ControlPacket(ControlPacket.PLAY, response=1, contents=[content])
-                self.control_socket.sendto(message.serialize(), best_server[0])
+                self.control_socket.sendto(message.serialize(), best_server[0]) # Proteger para casos em que ainda nao tem best server
 
                 self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
                 self.logger.debug(f"Message sent: {message}")
@@ -154,9 +181,12 @@ class RP(Node):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
+    parser.add_argument("-file", help="bootstrapper file")
     args = parser.parse_args()
 
-    if args.bootstrapper:
+    if args.file:
+        RP(args.bootstrapper, is_bootstrapper=True, file=args.file)
+    elif args.bootstrapper:
         RP(args.bootstrapper)
     else:
         print("Error: Wrong arguments")
