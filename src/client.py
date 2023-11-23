@@ -14,7 +14,7 @@ CACHE_FILE_NAME = "cache-"
 CACHE_FILE_EXT = ".jpg"
 
 class Client:
-    def __init__(self, master, bootstrapper, videofile):
+    def __init__(self, master, bootstrapper, videofile, debug_mode=False):
         self.master = master
         self.videofile = videofile
         self.neighbour = None
@@ -32,7 +32,10 @@ class Client:
         self.control_socket.bind(("", 7777))
         self.data_socket.bind(("", 7778))
 
-        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+        if debug_mode:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        else:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
@@ -219,11 +222,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
     parser.add_argument("-videofile", help="filename")
+    parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
+
+    debug_mode = False
+
+    if args.d:
+        debug_mode = True
 
     if args.bootstrapper and args.videofile:
         root = Tk()
-        app = Client(root, args.bootstrapper, args.videofile)
+        app = Client(root, args.bootstrapper, args.videofile, debug_mode=debug_mode)
         app.master.title("Client")	
         root.mainloop()
         

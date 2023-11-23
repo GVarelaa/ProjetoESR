@@ -10,7 +10,7 @@ from utils.tree_entry import TreeEntry
 from abc import abstractmethod
 
 class Node:
-    def __init__(self, bootstrapper, is_bootstrapper=False, file=None):
+    def __init__(self, bootstrapper, is_bootstrapper=False, file=None, debug_mode=False):
         self.is_bootstrapper = is_bootstrapper
         if is_bootstrapper:
             with open(file) as f:
@@ -30,7 +30,10 @@ class Node:
         address = bootstrapper.split(":")
         self.bootstrapper = (address[0], int(address[1]))
 
-        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+        if debug_mode:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        else:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
@@ -222,13 +225,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
     parser.add_argument("-file", help="bootstrapper file")
+    parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
+    debug_mode = False
+
+    if args.d:
+        debug_mode = True
+
     if args.file:
-        Node(args.bootstrapper, is_bootstrapper=True, file=args.file)
+        Node(args.bootstrapper, is_bootstrapper=True, file=args.file, debug_mode=debug_mode)
         
     elif args.bootstrapper:
-        Node(args.bootstrapper)
+        Node(args.bootstrapper, debug_mode=debug_mode)
     else:
         print("Error: Wrong arguments")
         exit()

@@ -11,13 +11,13 @@ from utils.tree_entry import TreeEntry
 from utils.status_entry import StatusEntry
 
 class RP(Node):
-    def __init__(self, bootstrapper, is_bootstrapper=False, file=None):        
+    def __init__(self, bootstrapper, is_bootstrapper=False, file=None, debug_mode=False):        
         self.servers = list()
 
         self.servers_info_lock = threading.Lock()
         self.servers_info = dict()
 
-        super().__init__(bootstrapper, is_bootstrapper=is_bootstrapper, file=file)
+        super().__init__(bootstrapper, is_bootstrapper=is_bootstrapper, file=file, debug_mode=debug_mode)
 
         # Services
         threading.Thread(target=self.tracking_service, args=()).start()
@@ -168,12 +168,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-bootstrapper", help="bootstrapper ip")
     parser.add_argument("-file", help="bootstrapper file")
+    parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
+    debug_mode = False
+
+    if args.d:
+        debug_mode = True
+
     if args.file:
-        RP(args.bootstrapper, is_bootstrapper=True, file=args.file)
+        RP(args.bootstrapper, is_bootstrapper=True, file=args.file, debug_mode=debug_mode)
     elif args.bootstrapper:
-        RP(args.bootstrapper)
+        RP(args.bootstrapper, debug_mode=debug_mode)
     else:
         print("Error: Wrong arguments")
         exit()

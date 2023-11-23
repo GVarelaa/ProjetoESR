@@ -10,7 +10,7 @@ from packets.rtp_packet import RtpPacket
 from packets.control_packet import ControlPacket
 
 class Server:
-    def __init__(self, filenames):
+    def __init__(self, filenames, debug_mode=False):
         self.videostreams = dict()
         for file in filenames:
             self.videostreams[file] = VideoStream("../videos/"+file)
@@ -20,7 +20,10 @@ class Server:
         self.event = threading.Event()
         #self.worker = threading.Thread(target=self.send_rtp).start()
 
-        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        if debug_mode:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        else:
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info(f"Streaming service listening on port {self.control_socket.getsockname()[1]}")
 
@@ -118,9 +121,15 @@ class Server:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-videostreams", help="filenames", type=lambda arg: arg.split(" "))
+    parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
-    server = Server(args.videostreams)
+    debug_mode = False
+
+    if args.d:
+        debug_mode = True
+
+    server = Server(args.videostreams, debug_mode=debug_mode)
 
 
 if __name__ == "__main__":
