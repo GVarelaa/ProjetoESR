@@ -18,6 +18,7 @@ class Client:
         self.master = master
         self.videofile = videofile
         self.neighbour = None
+        self.rp = None
 
         address = bootstrapper.split(":")
         self.bootstrapper = (address[0], int(address[1]))
@@ -31,13 +32,14 @@ class Client:
         self.control_socket.bind(("", 7777))
         self.data_socket.bind(("", 7778))
 
-        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+        logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
         self.setup() # Request neighbours
 
         threading.Thread(target=self.control_service, args=()).start()
+        threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = 0
@@ -171,6 +173,11 @@ class Client:
 
     def control_worker(self, address, msg):
         if msg.type == ControlPacket.PLAY and msg.response == 1:
+            self.logger.info(f"Control Service: Confirmation message received from {address[0]}")
+            self.logger.debug(f"Message received: {msg}")
+
+            self.rp = msg.source_ip
+
             threading.Thread(target=self.listen_rtp).start()
             self.play_event = threading.Event()
             self.play_event.clear()
@@ -184,11 +191,26 @@ class Client:
                 data, address = self.control_socket.recvfrom(1024)
                 message = ControlPacket.deserialize(data)
 
-                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
-
                 threading.Thread(target=self.control_worker, args=(address, message,)).start()
 
+        finally:
+            self.control_socket.close()
+
+
+    def polling_service(self):
+        try:
+            wait = 10 # 20 segundos
+            
+            while True:
+                msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
+
+                self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+
+                self.logger.info(f"Polling Service: Polling message sent to neighbour {self.neighbour}")
+                self.logger.debug(f"Message sent: {msg}")
+                
+                time.sleep(wait)
+        
         finally:
             self.control_socket.close()
 

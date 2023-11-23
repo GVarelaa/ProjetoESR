@@ -79,13 +79,17 @@ class RP(Node):
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {message}")
 
-                content = message.contents[0]
-
                 if message.source_ip == "0.0.0.0":
                     message.source_ip = address[0]
 
-                self.insert_tree(message, address)
+                if self.insert_tree(message, address): # Enviar para trás (source_ip=cliente)
+                    message.response = 1
+                    self.control_socket.sendto(message.serialize(), (address[0], 7777))
+                    self.logger.info(f"Streaming Service: Subscription confirmation sent to {address[0]}")
 
+                # MUDAR ISTO!!!!!!!!!!!!! SE ESTIVER A RECEBER A STREAM SO VAI REDIRECIONAR
+
+                """
                 # Proteger com condição
                 best_server = None
 
@@ -106,28 +110,10 @@ class RP(Node):
 
                 self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
                 self.logger.debug(f"Message sent: {message}")
-
-                # VERIFICAR ISTO
-                #self.control_socket.sendto(ControlPacket(2, flags=1).serialize(), (message.hops[0], 7777))
-                #self.logger.info(f"Control Service: Tree subscription confirmation message sent to {message.hops[0]}")
+                """
         
             elif message.response == 1:
                 try:
-                    ips = set()
-                    content = message.contents[0]
-
-                    # CUIDADO COM AS INTERFACES
-                    self.tree_lock.acquire()   
-                    for tree_entry in self.tree.values():
-                        if content in tree_entry.contents:
-                            ips.add(tree_entry.next_step)
-                    self.tree_lock.release()
-
-
-                    for ip in ips: 
-                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, contents=[content]).serialize(), (ip, 7777))
-                        self.logger.info(f"Streaming Service: Control Packet sent to {ip}")
-
                     while True:
                         data, address = self.data_socket.recvfrom(20480)
                     
