@@ -27,10 +27,7 @@ class Client:
         self.create_widgets()
 
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
         self.control_socket.bind(("", 7777))
-        self.data_socket.bind(("", 7778))
 
         if debug_mode:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
@@ -42,7 +39,7 @@ class Client:
         self.setup() # Request neighbours
 
         threading.Thread(target=self.control_service, args=()).start()
-        threading.Thread(target=self.polling_service, args=()).start()
+        #threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = 0
@@ -122,11 +119,14 @@ class Client:
         print("Not implemented...")
 
 
-    def listen_rtp(self):		
+    def listen_rtp(self, port):		
         """Listen for RTP packets."""
+        data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        data_socket.bind(("", port))
+        
         while True:
             try:
-                data, addr = self.data_socket.recvfrom(20480)
+                data, addr = data_socket.recvfrom(20480)
                 if data:
                     rtp_packet = RtpPacket()
                     rtp_packet.decode(data)
@@ -181,7 +181,7 @@ class Client:
 
             self.rp = msg.source_ip
 
-            threading.Thread(target=self.listen_rtp).start()
+            threading.Thread(target=self.listen_rtp, args=(msg.port,)).start()
             self.play_event = threading.Event()
             self.play_event.clear()
 

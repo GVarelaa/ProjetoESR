@@ -19,6 +19,7 @@ class Node:
         self.neighbours = list()
         self.streams = list()
 
+        self.contents = dict()
         self.tree = dict()
         self.tree_lock = threading.Lock()
 
@@ -39,7 +40,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        threading.Thread(target=self.pruning_service, args=()).start()
+        #threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         
 
@@ -77,6 +78,7 @@ class Node:
     def insert_tree(self, message, address):
         client = message.source_ip
         neighbour = address[0]
+        content = message.contents[0]
 
         self.tree_lock.acquire()
 
@@ -86,6 +88,11 @@ class Node:
         else:
             self.tree[client] = dict()
             self.tree[client][neighbour] = None
+
+            if content not in self.contents:
+                self.contents[content] = list()
+
+            self.contents[content].append(client)
 
             self.logger.debug(f"Control Service: Added client {client} to tree")
 
@@ -132,36 +139,13 @@ class Node:
 
             elif msg.response == 1:
                 # ABRIR O SOCKET COM A PORTA PASSADA PRA RECEBER A STREAM E CRIAR THREAD PRA LISTEN
-                try:
-                    self.logger.info(f"Control Service: Subscription confirmation received from neighbour {address[0]}")
-                    self.logger.debug(f"Message received: {msg}")
+                # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
+                threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
 
-
-                    self.tree_lock.acquire()
-        
-                    child = self.tree[msg.source_ip].child
-                    self.tree[msg.source_ip].parent = address[0]
-
-                    self.tree_lock.release()
-
-                    self.control_socket.sendto(msg.serialize(), (child, 7777))
-                    self.logger.info(f"Control Service: Subscription confirmation sent to {child}")
-
-                    # MUDAR ISTO!!!!!!!!!!!!!!!!!!!!!
-
-                    while True:
-                        data, address = self.data_socket.recvfrom(20480)
-                    
-                        for ip in ips:
-                            self.data_socket.sendto(data, (ip, 7778))
-                            self.logger.debug(f"Streaming Service: RTP Packet sent to {ip}")
-            
-                finally:
-                    self.data_socket.close()
         
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
-            self.logger.debug(f"Message received: {message}")
+            self.logger.debug(f"Message received: {msg}")
 
             self.tree_lock.acquire()
 
@@ -230,6 +214,36 @@ class Node:
             self.logger.info(f"Measure Service: Monitorization messages sent to {self.neighbours}")
 
             time.sleep(wait)
+
+
+    def listen_rtp(self, port, content):
+        data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        data_socket.bind(("", port))
+
+        try:
+            while True:
+                data, _ = data_socket.recvfrom(20480)
+
+                clients = self.contents[content]
+
+                steps = set()
+                for client in clients:
+                    best_step = None
+                    for step, measure in self.tree[client].items():
+                        if best_step is not None:
+                            if best_step[1] > measure.delay:
+                                best_step = (step, measure.delay)
+                        else:
+                            best_step = (step, measure.delay)
+                    steps.add(best_step[0])
+
+
+                for step in steps:
+                    self.data_socket.sendto(data, (step, port))
+                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step}")
+        
+        finally:
+            data_socket.close()
 
 
 def main():

@@ -92,10 +92,19 @@ class RP(Node):
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
                     self.streams.append(content)
 
+                    port
+                    if content in self.ports:
+                        port = self.ports[content]
+                    else:
+                        port = self.initial_port
+                        self.ports[content] = port
+                        self.initial_port += 1
+
                     # FAZER FLOOD DA PORTA PROS VIZINHOS?
+                    for neighbour in self.neighbours:
+                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=port, contents=[content]), (neighbour, 7777))
 
                     self.servers_lock.acquire()
-
                     server = None
                     for value in self.servers.values():
                         if content in value.contents:
@@ -104,20 +113,12 @@ class RP(Node):
                                     server = (server.server, server.metric)
                             else:
                                 server = (server.server, server.metric)
-                    
                     self.servers_lock.release()
-
-                    port
-                    if content in self.ports:
-                        port = self.ports[content]
-                    else:
-                        port = self.initial_port
-                        self.initial_port += 1
 
                     self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (server[0], 7777)) # Proteger para casos em que ainda nao tem best server
 
                     # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
-                    threading.Thread(target=self.listen_rtp, args=(port, )).start()
+                    threading.Thread(target=self.listen_rtp, args=(port, content)).start()
 
         
         elif message.type == ControlPacket.LEAVE:
@@ -170,22 +171,6 @@ class RP(Node):
                     
             time.sleep(wait) 
 
-
-    def listen_rtp(self, port):
-        data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        data_socket.bind(("", port))
-
-        try:
-            while True:
-                data, _ = data_socket.recvfrom(20480)
-
-                # Mudar isto e iterar pela self.tree
-                for ip in ips:
-                    self.data_socket.sendto(data, (ip, 7778))
-                    self.logger.debug(f"Streaming Service: RTP Packet sent to {ip}")
-        
-        finally:
-            data_socket.close()
 
 
 def main():

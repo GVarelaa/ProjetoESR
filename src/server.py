@@ -42,11 +42,11 @@ class Server:
             filename = msg.contents[0]
 
             if filename in self.videostreams:
-                send_stream_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
                 # Create a new thread and start sending RTP packets
                 #self.event = threading.Event()
-                threading.Thread(target=self.send_rtp, args=(addr, send_stream_socket, filename)).start()
+                threading.Thread(target=self.send_rtp, args=(addr[0], msg.port, send_socket, filename)).start()
             else:
                 msg.error = 1
                 self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
@@ -76,7 +76,7 @@ class Server:
             self.control_socket.close()
 
 
-    def send_rtp(self, addr, send_stream_socket, filename):
+    def send_rtp(self, addr, port, send_stream_socket, filename):
         """Send RTP packets over UDP."""
         while True:
             self.event.wait(0.05)
@@ -91,11 +91,12 @@ class Server:
                 frame_nr = self.videostreams[filename].get_frame_nr()
                 try:
                     packet =  self.make_rtp(data, frame_nr)
-                    send_stream_socket.sendto(packet, (addr[0], 7778))
+                    send_stream_socket.sendto(packet, (addr, port))
 
                     self.logger.debug(f"Streaming Service: RTP Packet {frame_nr} sent to {addr[0]}")
                 except:
                     self.logger.debug(f"Streaming Service: An error occurred sending RTP Packet {frame_nr} to {addr[0]}")
+
 
 
     def make_rtp(self, payload, frame_nr):
