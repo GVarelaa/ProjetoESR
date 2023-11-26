@@ -7,15 +7,17 @@ import socket
 from datetime import datetime
 from node import Node
 from packets.control_packet import ControlPacket
-from utils.tree_entry import TreeEntry
+from utils.measure_entry import MeasureEntry
 from utils.status_entry import StatusEntry
 
 class RP(Node):
     def __init__(self, bootstrapper, is_bootstrapper=False, file=None, debug_mode=False):        
-        self.servers = list()
+        self.servers = dict()
+        self.servers_lock = threading.Lock()
 
-        self.servers_info_lock = threading.Lock()
-        self.servers_info = dict()
+        self.ports = dict() # estrutura para saber as portas para cada conteudo
+
+        self.initial_port = 7778 # a partir daqui incrementa
 
         super().__init__(bootstrapper, is_bootstrapper=is_bootstrapper, file=file, debug_mode=debug_mode)
 
@@ -41,7 +43,9 @@ class RP(Node):
 
                 if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
                     self.neighbours = msg.neighbours
-                    self.servers = msg.servers
+
+                    for server in msg.servers:
+                        self.servers[server] = None
                     
                     self.logger.info("Setup: Neighbours and servers received")
                     self.logger.debug(f"Neighbours: {self.neighbours}")
@@ -82,47 +86,39 @@ class RP(Node):
                 if message.source_ip == "0.0.0.0":
                     message.source_ip = address[0]
 
-                if self.insert_tree(message, address): # Enviar para trás (source_ip=cliente)
-                    message.response = 1
-                    self.control_socket.sendto(message.serialize(), (address[0], 7777))
-                    self.logger.info(f"Streaming Service: Subscription confirmation sent to {address[0]}")
+                self.insert_tree(message, address) # Enviar para trás (source_ip=cliente)
 
-                # MUDAR ISTO!!!!!!!!!!!!! SE ESTIVER A RECEBER A STREAM SO VAI REDIRECIONAR
+                content = message.contents[0]
+                if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
+                    self.streams.append(content)
 
-                """
-                # Proteger com condição
-                best_server = None
+                    # FAZER FLOOD DA PORTA PROS VIZINHOS?
 
-                self.servers_info_lock.acquire()
+                    self.servers_lock.acquire()
 
-                for server, status in self.servers_info.items():
-                    if content in status.contents:
-                        if best_server is not None:
-                            if best_server[1] > status.metric:
-                                best_server = (status.server, status.metric)
-                        else:
-                            best_server = (status.server, status.metric)
-                
-                self.servers_info_lock.release()
-
-                message = ControlPacket(ControlPacket.PLAY, contents=[content])
-                self.control_socket.sendto(message.serialize(), best_server[0]) # Proteger para casos em que ainda nao tem best server
-
-                self.logger.info(f"Control Service: Stream request sent to server {best_server[0]}")
-                self.logger.debug(f"Message sent: {message}")
-                """
-        
-            elif message.response == 1:
-                try:
-                    while True:
-                        data, address = self.data_socket.recvfrom(20480)
+                    server = None
+                    for value in self.servers.values():
+                        if content in value.contents:
+                            if server is not None:
+                                if server[1] > server.metric:
+                                    server = (server.server, server.metric)
+                            else:
+                                server = (server.server, server.metric)
                     
-                        for ip in ips:
-                            self.data_socket.sendto(data, (ip, 7778))
-                            self.logger.debug(f"Streaming Service: RTP Packet sent to {ip}")
-                
-                finally:
-                    self.data_socket.close()
+                    self.servers_lock.release()
+
+                    port
+                    if content in self.ports:
+                        port = self.ports[content]
+                    else:
+                        port = self.initial_port
+                        self.initial_port += 1
+
+                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (server[0], 7777)) # Proteger para casos em que ainda nao tem best server
+
+                    # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
+                    threading.Thread(target=self.listen_rtp, args=(port, )).start()
+
         
         elif message.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
@@ -144,13 +140,24 @@ class RP(Node):
             actual_timestamp = float(datetime.now().timestamp())
             latency = actual_timestamp - message.latency
 
-            self.servers_info_lock.acquire()
+            self.servers_lock.acquire()
 
-            self.servers_info[address[0]] = StatusEntry(address, latency, message.contents, True) 
+            self.servers[address[0]] = StatusEntry(latency, message.contents, True) 
 
             self.logger.info(f"Control Service: Status from {address} was updated")
 
-            self.servers_info_lock.release()
+            self.servers_lock.release()
+        elif msg.type == ControlPacket.MEASURE:
+            # TER CUIDADO COM AS INTERFACES
+            self.tree_lock.acquire()
+            
+            for client in self.tree:
+                if address[0] in self.tree[client]:
+                    delay = float(datetime.now().timestamp()) - msg.timestamp# delay ou latencia que se chama?
+                    self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+
+            self.tree_lock.release()
+
 
 
     def tracking_service(self):
@@ -162,6 +169,23 @@ class RP(Node):
                 self.logger.info(f"Tracking Service: Monitorization message sent to {server}")
                     
             time.sleep(wait) 
+
+
+    def listen_rtp(self, port):
+        data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        data_socket.bind(("", port))
+
+        try:
+            while True:
+                data, _ = data_socket.recvfrom(20480)
+
+                # Mudar isto e iterar pela self.tree
+                for ip in ips:
+                    self.data_socket.sendto(data, (ip, 7778))
+                    self.logger.debug(f"Streaming Service: RTP Packet sent to {ip}")
+        
+        finally:
+            data_socket.close()
 
 
 def main():

@@ -1,12 +1,10 @@
 class MeasureEntry:
-    def __init__(self, server, metric, contents, status):
-        self.server = server
-        self.metric = metric
-        self.contents = contents
-        self.status = status
-
+    def __init__(self, delay, loss):
+        self.delay = delay
+        self.loss = loss
+    
     def __str__(self):
-        return f"Server IP: {self.server} | Metric: {self.metric} | Contents: {self.contents} | Status: {self.status}"
+        return f"Delay : {self.delay} | Loss : {self.loss}"
 
     def __repr__(self):
-        return f"Server IP: {self.server} | Metric: {self.metric} | Contents: {self.contents} | Status: {self.status}"
+        return f"Delay : {self.delay} | Loss : {self.loss}"

@@ -6,7 +6,7 @@ import threading
 import logging
 from datetime import datetime
 from packets.control_packet import ControlPacket
-from utils.tree_entry import TreeEntry
+from utils.measure_entry import MeasureEntry
 from abc import abstractmethod
 
 class Node:
@@ -17,15 +17,13 @@ class Node:
                 self.nodes = json.load(f)
 
         self.neighbours = list()
+        self.streams = list()
 
-        self.tree_lock = threading.Lock()
         self.tree = dict()
+        self.tree_lock = threading.Lock()
 
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
         self.control_socket.bind(("", 7777))
-        self.data_socket.bind(("", 7778))
         
         address = bootstrapper.split(":")
         self.bootstrapper = (address[0], int(address[1]))
@@ -34,6 +32,7 @@ class Node:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
         else:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
@@ -76,33 +75,21 @@ class Node:
     
 
     def insert_tree(self, message, address):
-        added = False
-        timestamp = float(datetime.now().timestamp())
-        latency = timestamp - message.latency
         client = message.source_ip
         neighbour = address[0]
 
         self.tree_lock.acquire()
-        
+
         if client in self.tree:
-            entry = self.tree[client]
-            
-            if latency < entry.latency:
-                self.logger.debug(f"Control Service: Changing from neighbour {entry.child} to neighbour {neighbour}")
-                self.tree[client] = TreeEntry(timestamp, latency, message.contents, child=neighbour)
-                added = True
-            
-            else:
-                self.tree[client].timestamp = timestamp
+            self.tree[client][neighbour] = None
 
         else:
-            self.logger.debug(f"Control Service: Adding neighbour {neighbour} to tree")
-            self.tree[client] = TreeEntry(timestamp, latency, message.contents, child=neighbour)
-            added = True
+            self.tree[client] = dict()
+            self.tree[client][neighbour] = None
+
+            self.logger.debug(f"Control Service: Added client {client} to tree")
 
         self.tree_lock.release()
-
-        return added
 
 
     @abstractmethod
@@ -136,13 +123,15 @@ class Node:
 
                 self.insert_tree(msg, address)
 
-                for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                    if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
-                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                        self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
-                        self.logger.debug(f"Message sent: {msg}")
+                if not msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
+                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
+                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                            self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                            self.logger.debug(f"Message sent: {msg}")
 
             elif msg.response == 1:
+                # ABRIR O SOCKET COM A PORTA PASSADA PRA RECEBER A STREAM E CRIAR THREAD PRA LISTEN
                 try:
                     self.logger.info(f"Control Service: Subscription confirmation received from neighbour {address[0]}")
                     self.logger.debug(f"Message received: {msg}")
@@ -182,6 +171,16 @@ class Node:
             self.logger.debug(f"Control Service: Client {address} was removed from tree")
 
             self.tree_lock.release()
+        elif msg.type == ControlPacket.MEASURE:
+            # TER CUIDADO COM AS INTERFACES
+            self.tree_lock.acquire()
+
+            for client in self.tree:
+                if address[0] in self.tree[client]:
+                    delay = float(datetime.now().timestamp()) - msg.timestamp# delay ou latencia que se chama?
+                    self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+
+            self.tree_lock.release()
 
 
     def control_service(self):
@@ -217,6 +216,18 @@ class Node:
                 self.tree.pop(key)
 
             self.tree_lock.release()
+
+            time.sleep(wait)
+
+    
+    def measure_service(self):
+        wait = 5
+        while True:
+            for neighbour in self.neighbours:
+                message = ControlPacket(ControlPacket.MEASURE)
+                self.control_socket.sendto(message.serialize(), (neighbour, 7777))
+            
+            self.logger.info(f"Measure Service: Monitorization messages sent to {self.neighbours}")
 
             time.sleep(wait)
 

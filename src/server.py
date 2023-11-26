@@ -42,9 +42,6 @@ class Server:
             filename = msg.contents[0]
 
             if filename in self.videostreams:
-                msg.response = 1
-                self.control_socket.sendto(msg.serialize(), addr)
-
                 send_stream_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
                 # Create a new thread and start sending RTP packets
