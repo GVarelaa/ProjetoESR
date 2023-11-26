@@ -92,7 +92,7 @@ class RP(Node):
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
                     self.streams.append(content)
 
-                    port
+                    port = None
                     if content in self.ports:
                         port = self.ports[content]
                     else:
@@ -102,20 +102,23 @@ class RP(Node):
 
                     # FAZER FLOOD DA PORTA PROS VIZINHOS?
                     for neighbour in self.neighbours:
-                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=port, contents=[content]), (neighbour, 7777))
+                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=port, contents=[content]).serialize(), (neighbour, 7777))
 
                     self.servers_lock.acquire()
-                    server = None
-                    for value in self.servers.values():
-                        if content in value.contents:
-                            if server is not None:
-                                if server[1] > server.metric:
-                                    server = (server.server, server.metric)
+                    best_server = None
+                    for server, value in self.servers.items():
+                        if value is not None and content in value.contents:
+                            if best_server is not None:
+                                if best_server[1] > value.metric:
+                                    best_server = (server, value.metric)
                             else:
-                                server = (server.server, server.metric)
+                                best_server = (server, value.metric)
                     self.servers_lock.release()
 
-                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (server[0], 7777)) # Proteger para casos em que ainda nao tem best server
+                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
+
+                    self.logger.info(f"Control Service: Streaming request sent to server {best_server[0]}")
+                    self.logger.debug(f"Message sent: {message}")
 
                     # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
                     threading.Thread(target=self.listen_rtp, args=(port, content)).start()
@@ -143,18 +146,19 @@ class RP(Node):
 
             self.servers_lock.acquire()
 
-            self.servers[address[0]] = StatusEntry(latency, message.contents, True) 
+            self.servers[address[0]] = StatusEntry(latency, message.contents, True)
 
             self.logger.info(f"Control Service: Status from {address} was updated")
 
             self.servers_lock.release()
-        elif msg.type == ControlPacket.MEASURE:
+        
+        elif message.type == ControlPacket.MEASURE:
             # TER CUIDADO COM AS INTERFACES
             self.tree_lock.acquire()
             
             for client in self.tree:
                 if address[0] in self.tree[client]:
-                    delay = float(datetime.now().timestamp()) - msg.timestamp# delay ou latencia que se chama?
+                    delay = float(datetime.now().timestamp()) - message.latency# delay ou latencia que se chama?
                     self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
 
             self.tree_lock.release()

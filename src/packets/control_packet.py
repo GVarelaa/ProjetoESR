@@ -9,7 +9,7 @@ class ControlPacket:
     LEAVE = 4
     MEASURE = 5
 
-    def __init__(self, msg_type, response=0, error=0, latency=0, port = None, source_ip="0.0.0.0", last_hop="0.0.0.0", neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, error=0, latency=0, port=None, source_ip="0.0.0.0", last_hop="0.0.0.0", neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.response = response # Alterar para bit
@@ -56,11 +56,17 @@ class ControlPacket:
         # Error - 1 byte
         byte_array += self.error.to_bytes(1, 'big')
 
+        # HasPort - 1 byte
+        if self.port is not None:
+            self.has_port = 1
+        byte_array += self.has_port.to_bytes(1, 'big')
+
         # Latency - 8 bytes
         byte_array += struct.pack('>d', self.latency)
 
         # Port - 2 byte
-        byte_array += self.port.to_bytes(2, 'big')
+        if self.has_port == 1:
+            byte_array += self.port.to_bytes(2, 'big')
 
         # Source IP - 4 bytes
         byte_array += self.serialize_ip(self.source_ip)
@@ -116,8 +122,13 @@ class ControlPacket:
         msg_type = int.from_bytes(byte_array.read(1), byteorder='big')
         response = int.from_bytes(byte_array.read(1), byteorder='big')
         error = int.from_bytes(byte_array.read(1), byteorder='big')
+        has_port = int.from_bytes(byte_array.read(1), byteorder='big')
         latency = struct.unpack('>d', byte_array.read(8))[0]
-        port = int.from_bytes(byte_array.read(2), byteorder='big')
+
+        port = None
+        if has_port == 1:
+            port = int.from_bytes(byte_array.read(2), byteorder='big')
+        
         source_ip = ControlPacket.deserialize_ip(byte_array.read(4))
         last_hop = ControlPacket.deserialize_ip(byte_array.read(4))
 

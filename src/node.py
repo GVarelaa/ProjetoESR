@@ -8,6 +8,7 @@ from datetime import datetime
 from packets.control_packet import ControlPacket
 from utils.measure_entry import MeasureEntry
 from abc import abstractmethod
+from math import inf
 
 class Node:
     def __init__(self, bootstrapper, is_bootstrapper=False, file=None, debug_mode=False):
@@ -42,6 +43,7 @@ class Node:
         # Services
         #threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
+        threading.Thread(target=self.measure_service, args=()).start()
         
 
     @abstractmethod
@@ -140,6 +142,13 @@ class Node:
             elif msg.response == 1:
                 # ABRIR O SOCKET COM A PORTA PASSADA PRA RECEBER A STREAM E CRIAR THREAD PRA LISTEN
                 # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
+
+                for neighbour in self.neighbours:
+                    if neighbour != address[0]:
+                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=msg.port, contents=[msg.contents[0]]).serialize(), (neighbour, 7777))
+                        self.logger.info(f"Control Service: Port messaage sent to neighbour {neighbour}")
+                        self.logger.debug(f"Message sent: {msg}")
+                
                 threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
 
         
@@ -220,6 +229,8 @@ class Node:
         data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         data_socket.bind(("", port))
 
+        self.logger.info(f"Streaming Service: Receiving RTP Packets")
+
         try:
             while True:
                 data, _ = data_socket.recvfrom(20480)
@@ -229,17 +240,21 @@ class Node:
                 steps = set()
                 for client in clients:
                     best_step = None
+
+                    self.tree_lock.acquire()
                     for step, measure in self.tree[client].items():
-                        if best_step is not None:
+                        if measure is not None and best_step is not None:
                             if best_step[1] > measure.delay:
                                 best_step = (step, measure.delay)
-                        else:
+                        elif measure is not None:
                             best_step = (step, measure.delay)
+                        else:
+                            best_step = (step, inf)
                     steps.add(best_step[0])
-
+                    self.tree_lock.release()
 
                 for step in steps:
-                    self.data_socket.sendto(data, (step, port))
+                    data_socket.sendto(data, (step, port))
                     self.logger.debug(f"Streaming Service: RTP Packet sent to {step}")
         
         finally:

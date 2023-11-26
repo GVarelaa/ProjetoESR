@@ -39,6 +39,9 @@ class Server:
         #seq = request[1].split(' ')
         
         if msg.type == ControlPacket.PLAY and msg.response == 0:
+            self.logger.info(f"Control Service: Streaming request received from {addr[0]}")
+            self.logger.debug(f"Message received: {msg}")
+
             filename = msg.contents[0]
 
             if filename in self.videostreams:
@@ -78,6 +81,8 @@ class Server:
 
     def send_rtp(self, addr, port, send_stream_socket, filename):
         """Send RTP packets over UDP."""
+
+        self.logger.info(f"Streaming Service: Sending RTP Packets to {addr[0]}")
         while True:
             self.event.wait(0.05)
             
