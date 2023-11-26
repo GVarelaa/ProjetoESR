@@ -121,6 +121,9 @@ class Client:
 
     def listen_rtp(self, port):		
         """Listen for RTP packets."""
+
+        self.logger.info(f"Streaming Service: Receiving RTP packets from {addr[0]}")        
+        
         data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         data_socket.bind(("", port))
         
@@ -143,8 +146,8 @@ class Client:
                 if self.play_event.isSet(): 
                     break
                 
-                self.data_socket.shutdown(socket.SHUT_RDWR)
-                self.data_socket.close()
+                data_socket.shutdown(socket.SHUT_RDWR)
+                data_socket.close()
                 break
                 
     

@@ -15,8 +15,6 @@ class RP(Node):
         self.servers = dict()
         self.servers_lock = threading.Lock()
 
-        self.ports = dict() # estrutura para saber as portas para cada conteudo
-
         self.initial_port = 7778 # a partir daqui incrementa
 
         super().__init__(bootstrapper, is_bootstrapper=is_bootstrapper, file=file, debug_mode=debug_mode)

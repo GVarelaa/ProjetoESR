@@ -82,7 +82,7 @@ class Server:
     def send_rtp(self, addr, port, send_stream_socket, filename):
         """Send RTP packets over UDP."""
 
-        self.logger.info(f"Streaming Service: Sending RTP Packets to {addr[0]}")
+        self.logger.info(f"Streaming Service: Sending RTP Packets to {addr}")
         while True:
             self.event.wait(0.05)
             
