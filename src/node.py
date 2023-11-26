@@ -20,7 +20,7 @@ class Node:
         self.neighbours = list()
         self.streams = list()
 
-        self.contents = dict()
+        self.contents = dict() # Precisamos de lock?
         self.tree = dict()
         self.tree_lock = threading.Lock()
 
@@ -234,6 +234,9 @@ class Node:
         try:
             while True:
                 data, _ = data_socket.recvfrom(20480)
+
+                if content not in self.streams:
+                    self.streams.append(content)
 
                 clients = self.contents[content]
 
