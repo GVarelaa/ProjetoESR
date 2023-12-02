@@ -59,6 +59,9 @@ class RP(Node):
 
 
     def control_worker(self, address, message):
+        if message.source_ip == "0.0.0.0":
+            message.source_ip = address[0]
+
         if self.is_bootstrapper and message.type == ControlPacket.NEIGHBOURS and message.response == 0:
             neighbours = list()
             servers = list()
@@ -80,9 +83,6 @@ class RP(Node):
             if message.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {message}")
-
-                if message.source_ip == "0.0.0.0":
-                    message.source_ip = address[0]
 
                 self.insert_tree(message, address) # Enviar para trás (source_ip=cliente)
 
@@ -127,13 +127,11 @@ class RP(Node):
             self.logger.debug(f"Message received: {message}")
 
             self.tree_lock.acquire()
-
-            if address in self.tree:
-                self.tree.pop(address)
-
-            self.logger.debug(f"Control Service: Client {address} was removed from tree")
-
+            if address[0] in self.tree:
+                self.tree.pop(address[0])
             self.tree_lock.release()
+
+            self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
 
         elif message.type == ControlPacket.STATUS and message.response == 1:
             self.logger.info(f"Control Service: Status response received from server {address[0]}")
@@ -151,16 +149,26 @@ class RP(Node):
             self.servers_lock.release()
         
         elif message.type == ControlPacket.MEASURE:
-            # TER CUIDADO COM AS INTERFACES
-            self.tree_lock.acquire()
+            if message.response == 0:
+                self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {message}")
+
+                message.response = 1
+                self.control_socket.sendto(message.serialize(), (address[0], 7777))
             
-            for client in self.tree:
-                if address[0] in self.tree[client]:
-                    delay = float(datetime.now().timestamp()) - message.latency# delay ou latencia que se chama?
-                    self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+            elif message.response == 1:
+                # TER CUIDADO COM AS INTERFACES
+                self.logger.info(f"Control Service: Measure response received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {message}")
 
-            self.tree_lock.release()
+                self.tree_lock.acquire()
+                
+                for client in self.tree:
+                    if address[0] in self.tree[client]:
+                        delay = float(datetime.now().timestamp()) - message.latency# delay ou latencia que se chama?
+                        self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
 
+                self.tree_lock.release()
 
 
     def tracking_service(self):

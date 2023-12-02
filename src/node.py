@@ -19,9 +19,12 @@ class Node:
                 self.nodes = json.load(f)
 
         self.neighbours = list()
+    
         self.streams = list()
+        self.streams_lock = threading.Lock()
 
-        self.contents = dict() # Precisamos de lock?
+        self.contents = dict() # Precisamos de lock? SIM!
+        self.contents_lock = threading.Lock()
         self.tree = dict()
         self.tree_lock = threading.Lock()
         
@@ -106,6 +109,9 @@ class Node:
 
     @abstractmethod
     def control_worker(self, address, msg):
+        if msg.source_ip == "0.0.0.0":
+            msg.source_ip = address[0]
+        
         if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
             servers = list()
@@ -129,9 +135,6 @@ class Node:
                 self.logger.debug(f"Message received: {msg}")
 
                 msg.last_hop = address[0]
-
-                if msg.source_ip == "0.0.0.0":
-                    msg.source_ip = address[0]
 
                 self.insert_tree(msg, address)
 
@@ -165,24 +168,53 @@ class Node:
             self.logger.debug(f"Message received: {msg}")
 
             self.tree_lock.acquire()
-
-            if address in self.tree:
-                self.tree.pop(address)
-
-            self.logger.debug(f"Control Service: Client {address} was removed from tree")
-
+            if address[0] in self.tree:
+                self.tree.pop(address[0])
             self.tree_lock.release()
+
+            self.contents_lock.acquire()
+            if msg.contents[0] in self.contents:
+                if address[0] in self.contents[msg.contents[0]]:
+                    self.contents[msg.contents[0]].remove(address[0])
+            
+            if len(self.contents[msg.contents[0]]) == 0:
+                self.streams_lock.acquire()
+                if msg.contents[0] in self.streams:
+                    self.streams.remove(msg.contents[0])
+                self.streams_lock.release()
+            self.contents_lock.release()
+            
+            self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
+        
+            for neighbour in self.neighbours:
+                if neighbour != address[0]:
+                    self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                    self.logger.info(f"Control Service: Leave message sent to neighbour {neighbour}")
+                    self.logger.debug(f"Message sent: {msg}")
 
         elif msg.type == ControlPacket.MEASURE:
-            # TER CUIDADO COM AS INTERFACES
-            self.tree_lock.acquire()
+            if msg.response == 0:
+                self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
 
-            for client in self.tree:
-                if address[0] in self.tree[client]:
-                    delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
-                    self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+                msg.response = 1
+                self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+            
+            elif msg.response == 1:
+                # TER CUIDADO COM AS INTERFACES
+                self.logger.info(f"Control Service: Measure response received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
 
-            self.tree_lock.release()
+                self.tree_lock.acquire()
+                
+                for client in self.tree:
+                    print(address[0])
+                    if address[0] in self.tree[client]:
+                        print("askdas")
+                        delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
+                        self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+
+                self.tree_lock.release()
 
 
     def control_service(self):
@@ -245,10 +277,14 @@ class Node:
             while True:
                 data, _ = data_socket.recvfrom(20480)
 
+                self.streams_lock.acquire()
                 if content not in self.streams:
                     self.streams.append(content)
+                self.streams_lock.release()
 
+                self.contents_lock.acquire()
                 clients = self.contents[content]
+                self.contents_lock.release()
 
                 steps = set()
                 for client in clients:

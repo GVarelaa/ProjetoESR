@@ -5,9 +5,8 @@ class ControlPacket:
     NEIGHBOURS = 0
     STATUS = 1
     PLAY = 2
-    PAUSE = 3
-    LEAVE = 4
-    MEASURE = 5
+    LEAVE = 3
+    MEASURE = 4
 
     def __init__(self, msg_type, response=0, error=0, latency=0, port=None, source_ip="0.0.0.0", last_hop="0.0.0.0", neighbours=list(), contents=list(), servers=list()):
         # Header

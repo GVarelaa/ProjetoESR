@@ -3,6 +3,9 @@ import socket
 import threading
 import logging
 import time
+import random
+import os
+import errno
 from datetime import datetime
 from tkinter import *
 import tkinter.messagebox
@@ -42,7 +45,7 @@ class Client:
         #threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
-        self.session_id = 0
+        self.session_id = random.randint(1,100)
         self.request_sent = -1
         self.teardown_acked = 0
         self.frame_nr = 0
@@ -57,17 +60,17 @@ class Client:
         self.start["command"] = self.play_movie
         self.start.grid(row=1, column=1, padx=2, pady=2)
         
-        # Create Pause button			
-        self.pause = Button(self.master, width=20, padx=3, pady=3)
-        self.pause["text"] = "Pause"
-        self.pause["command"] = self.pause_movie
-        self.pause.grid(row=1, column=2, padx=2, pady=2)
+        # Create Stop button			
+        self.stop = Button(self.master, width=20, padx=3, pady=3)
+        self.stop["text"] = "Stop"
+        self.stop["command"] = self.stop_movie
+        self.stop.grid(row=1, column=2, padx=2, pady=2)
         
-        # Create Teardown button
-        self.teardown = Button(self.master, width=20, padx=3, pady=3)
-        self.teardown["text"] = "Teardown"
-        self.teardown["command"] =  self.exit_client
-        self.teardown.grid(row=1, column=3, padx=2, pady=2)
+        # Create Exit button
+        self.exit = Button(self.master, width=20, padx=3, pady=3)
+        self.exit["text"] = "Exit"
+        self.exit["command"] =  self.exit_client
+        self.exit.grid(row=1, column=3, padx=2, pady=2)
         
         # Create a label to display the movie
         self.label = Label(self.master, height=19)
@@ -100,32 +103,43 @@ class Client:
 
     def play_movie(self):
         """Play button handler."""
-        control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
         msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
-        control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+        self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
         self.logger.debug(f"Message sent: {msg}")
+    
+
+    def stop_movie(self):
+        """Stop button handler."""
+        msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
+        self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
         
 
     def exit_client(self):
-        """Teardown button handler."""
+        """Exit button handler."""
+        msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
+        self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+        
+        self.logger.debug(f"Message sent: {msg}")
+
         self.master.destroy() # Close the gui window
-        os.remove(CACHE_FILE_NAME + str(self.session_id) + CACHE_FILE_EXT) # Delete the cache image from video
-
-
-    def pause_movie(self):
-        """Pause button handler."""
-        print("Not implemented...")
+        os.remove(CACHE_FILE_NAME + str(self.session_id) + CACHE_FILE_EXT) # Delete the cache image from 
+        
+        # FALTA FECHAR AQUI O CLIENTE E FECHAR SOCKET DE DATA
 
 
     def listen_rtp(self, port):		
         """Listen for RTP packets."""
 
-        self.logger.info(f"Streaming Service: Receiving RTP packets from {addr[0]}")        
+        self.logger.info(f"Streaming Service: Receiving RTP packets")        
         
-        data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        data_socket.bind(("", port))
+        try:
+            data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            data_socket.bind(("", port))
+        
+        except socket.error as e:
+            if e.errno == errno.EADDRINUSE:
+                pass
         
         while True:
             try:
@@ -187,6 +201,13 @@ class Client:
             threading.Thread(target=self.listen_rtp, args=(msg.port,)).start()
             self.play_event = threading.Event()
             self.play_event.clear()
+    
+        elif msg.type == ControlPacket.MEASURE and msg.response == 0:
+            self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
+            self.logger.debug(f"Message received: {msg}")
+
+            msg.response = 1
+            self.control_socket.sendto(msg.serialize(), (address[0], 7777))
 
         
     def control_service(self):
