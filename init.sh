@@ -6,15 +6,15 @@ number=$2
 source_folder="/home/core/ProjetoESR"
 
 # Destination folder path
-destination_folder="/tmp/pycore." + core + "/"
+destination_folder="/tmp/pycore."$core"/"
 
-for i in {1..number}; do
+for i in $(seq 1 "$number")
+do
     if [ -d "$source_folder" ]; then
         # Copy the entire folder to the destination
-        cp -r "$source_folder" "$destination_folder" + "/n" + i + ".conf"
+        cp -r "$source_folder" "$destination_folder/n"$i".conf"
         echo "Folder copied successfully."
     else
         echo "Source folder does not exist."
     fi
 done
-
