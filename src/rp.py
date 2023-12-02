@@ -58,11 +58,11 @@ class RP(Node):
                 exit()
 
 
-    def control_worker(self, address, message):
-        if message.source_ip == "0.0.0.0":
-            message.source_ip = address[0]
+    def control_worker(self, address, msg):
+        if msg.source_ip == "0.0.0.0":
+            msg.source_ip = address[0]
 
-        if self.is_bootstrapper and message.type == ControlPacket.NEIGHBOURS and message.response == 0:
+        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
             servers = list()
 
@@ -79,14 +79,18 @@ class RP(Node):
             self.logger.info(f"Control Service: Message sent to {address[0]}")
             self.logger.debug(f"Message: {msg}")
         
-        elif message.type == ControlPacket.PLAY:
-            if message.response == 0:
+        elif msg.type == ControlPacket.PLAY:
+            if msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
+                self.logger.debug(f"Message received: {msg}")
 
-                self.insert_tree(message, address) # Enviar para trás (source_ip=cliente)
+                self.last_contacts_lock.acquire()
+                self.last_contacts[msg.source_ip] = float(datetime.now().timestamp())
+                self.last_contacts_lock.release()
 
-                content = message.contents[0]
+                self.insert_tree(msg, address) # Enviar para trás (source_ip=cliente)
+
+                content = msg.contents[0]
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
                     self.streams.append(content)
 
@@ -116,57 +120,69 @@ class RP(Node):
                     self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
 
                     self.logger.info(f"Control Service: Streaming request sent to server {best_server[0]}")
-                    self.logger.debug(f"Message sent: {message}")
+                    self.logger.debug(f"Message sent: {msg}")
 
                     # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
                     threading.Thread(target=self.listen_rtp, args=(port, content)).start()
 
         
-        elif message.type == ControlPacket.LEAVE:
+        elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
-            self.logger.debug(f"Message received: {message}")
+            self.logger.debug(f"Message received: {msg}")
+
+            content = msg.contents[0]
 
             self.tree_lock.acquire()
-            if address[0] in self.tree:
-                self.tree.pop(address[0])
-            self.tree_lock.release()
 
+            if content in self.tree:
+                if address[0] in self.tree[content]:
+                    self.tree[content].pop(address[0])
+                    
+                    if len(list(self.tree[content].keys())) == 0:
+                        self.streams_lock.acquire()
+                        self.streams.remove(content)
+                        self.streams_lock.release()
+
+            self.tree_lock.release()
+            
             self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
 
-        elif message.type == ControlPacket.STATUS and message.response == 1:
+
+        elif msg.type == ControlPacket.STATUS and msg.response == 1:
             self.logger.info(f"Control Service: Status response received from server {address[0]}")
-            self.logger.debug(f"Message received: {message}")
+            self.logger.debug(f"Message received: {msg}")
 
             actual_timestamp = float(datetime.now().timestamp())
-            latency = actual_timestamp - message.latency
+            latency = actual_timestamp - msg.latency
 
             self.servers_lock.acquire()
 
-            self.servers[address[0]] = StatusEntry(latency, message.contents, True)
+            self.servers[address[0]] = StatusEntry(latency, msg.contents, True)
 
             self.logger.info(f"Control Service: Status from {address} was updated")
 
             self.servers_lock.release()
         
-        elif message.type == ControlPacket.MEASURE:
-            if message.response == 0:
+        elif msg.type == ControlPacket.MEASURE:
+            if msg.response == 0:
                 self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
+                self.logger.debug(f"Message received: {msg}")
 
-                message.response = 1
-                self.control_socket.sendto(message.serialize(), (address[0], 7777))
+                msg.response = 1
+                self.control_socket.sendto(msg.serialize(), (address[0], 7777))
             
-            elif message.response == 1:
+            elif msg.response == 1:
                 # TER CUIDADO COM AS INTERFACES
                 self.logger.info(f"Control Service: Measure response received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {message}")
+                self.logger.debug(f"Message received: {msg}")
 
                 self.tree_lock.acquire()
                 
-                for client in self.tree:
-                    if address[0] in self.tree[client]:
-                        delay = float(datetime.now().timestamp()) - message.latency# delay ou latencia que se chama?
-                        self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+                for content, clients in self.tree.items():
+                    for client in clients:
+                        if address[0] in self.tree[content][client]:
+                            delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
+                            self.tree[content][client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
 
                 self.tree_lock.release()
 

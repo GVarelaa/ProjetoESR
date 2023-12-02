@@ -20,13 +20,14 @@ class Node:
 
         self.neighbours = list()
     
-        self.streams = list()
+        self.streams = list() # Lista com as streams atuais
         self.streams_lock = threading.Lock()
 
-        self.contents = dict() # Precisamos de lock? SIM!
-        self.contents_lock = threading.Lock()
-        self.tree = dict()
+        self.tree = dict() # {conteudo -> {cliente -> {vizinho -> measureEntry} } }
         self.tree_lock = threading.Lock()
+
+        self.last_contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
+        self.last_contacts_lock = threading.Lock()
         
         self.ports = dict() # estrutura para saber as portas para cada conteudo
 
@@ -47,7 +48,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        #threading.Thread(target=self.pruning_service, args=()).start()
+        threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         threading.Thread(target=self.measure_service, args=()).start()
         
@@ -90,17 +91,15 @@ class Node:
 
         self.tree_lock.acquire()
 
-        if client in self.tree:
-            self.tree[client][neighbour] = None
+        if content not in self.tree:
+            self.tree[content] = dict()
+        
+        if client in self.tree[content]:
+                self.tree[content][client][neighbour] = None
 
         else:
-            self.tree[client] = dict()
-            self.tree[client][neighbour] = None
-
-            if content not in self.contents:
-                self.contents[content] = list()
-
-            self.contents[content].append(client)
+            self.tree[content][client] = dict()
+            self.tree[content][client][neighbour] = None
 
             self.logger.debug(f"Control Service: Added client {client} to tree")
 
@@ -133,6 +132,10 @@ class Node:
             if msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
+
+                self.last_contacts_lock.acquire()
+                self.last_contacts[msg.source_ip] = float(datetime.now().timestamp())
+                self.last_contacts_lock.release()
 
                 msg.last_hop = address[0]
 
@@ -167,22 +170,20 @@ class Node:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
 
-            self.tree_lock.acquire()
-            if address[0] in self.tree:
-                self.tree.pop(address[0])
-            self.tree_lock.release()
+            content = msg.contents[0]
 
-            self.contents_lock.acquire()
-            if msg.contents[0] in self.contents:
-                if address[0] in self.contents[msg.contents[0]]:
-                    self.contents[msg.contents[0]].remove(address[0])
-            
-            if len(self.contents[msg.contents[0]]) == 0:
-                self.streams_lock.acquire()
-                if msg.contents[0] in self.streams:
-                    self.streams.remove(msg.contents[0])
-                self.streams_lock.release()
-            self.contents_lock.release()
+            self.tree_lock.acquire()
+
+            if content in self.tree:
+                if address[0] in self.tree[content]:
+                    self.tree[content].pop(address[0])
+                    
+                    if len(list(self.tree[content].keys())) == 0:
+                        self.streams_lock.acquire()
+                        self.streams.remove(content)
+                        self.streams_lock.release()
+
+            self.tree_lock.release()
             
             self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
         
@@ -207,12 +208,11 @@ class Node:
 
                 self.tree_lock.acquire()
                 
-                for client in self.tree:
-                    print(address[0])
-                    if address[0] in self.tree[client]:
-                        print("askdas")
-                        delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
-                        self.tree[client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
+                for content, clients in self.tree.items():
+                    for client in clients:
+                        if address[0] in self.tree[content][client]:
+                            delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
+                            self.tree[content][client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
 
                 self.tree_lock.release()
 
@@ -234,21 +234,33 @@ class Node:
     def pruning_service(self):
         wait = 20 # 20 segundos
         while True:
+            print(self.last_contacts)
             timestamp = float(datetime.now().timestamp())
-            
-            self.tree_lock.acquire()
-
             to_remove = list()
 
-            for key, value in self.tree.items():
-                if timestamp - value.timestamp >= wait:
-                    to_remove.append(key)
+            self.last_contacts_lock.acquire()
 
-                    self.logger.debug(f"Pruning Service: Client {key} was removed from tree")
+            for client, last_contact in self.last_contacts.items():
+                print(timestamp - last_contact)
+                if timestamp - last_contact > 10: # TEMOS DE MUDAR PARA 1 !!!!!!!!!!!!!!!!!!!!!!!!!
+                    to_remove.append(client)
+
+            self.last_contacts_lock.release()
+
+            self.tree_lock.acquire()
+
+            for client in to_remove:
+                for content, clients in self.tree.items():
+                    if client in clients:
+                        self.tree[content].pop(client)
+
+                        self.logger.info(f"Pruning Service: Client {client} was removed from tree")
+
+                        if len(list(self.tree[content].keys())) == 0:
+                            self.streams_lock.acquire()
+                            self.streams.remove(content)
+                            self.streams_lock.release()
             
-            for key in to_remove:
-                self.tree.pop(key)
-
             self.tree_lock.release()
 
             time.sleep(wait)
@@ -282,16 +294,14 @@ class Node:
                     self.streams.append(content)
                 self.streams_lock.release()
 
-                self.contents_lock.acquire()
-                clients = self.contents[content]
-                self.contents_lock.release()
+                self.tree_lock.acquire()
 
                 steps = set()
-                for client in clients:
+
+                for client, next_steps in self.tree[content].items():
                     best_step = None
 
-                    self.tree_lock.acquire()
-                    for step, measure in self.tree[client].items():
+                    for step, measure in next_steps.items():
                         if measure is not None and best_step is not None:
                             if best_step[1] > measure.delay:
                                 best_step = (step, measure.delay)
@@ -300,7 +310,8 @@ class Node:
                         else:
                             best_step = (step, inf)
                     steps.add(best_step[0])
-                    self.tree_lock.release()
+                    
+                self.tree_lock.release()
 
                 for step in steps:
                     data_socket.sendto(data, (step, port))

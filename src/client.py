@@ -42,7 +42,7 @@ class Client:
         self.setup() # Request neighbours
 
         threading.Thread(target=self.control_service, args=()).start()
-        #threading.Thread(target=self.polling_service, args=()).start()
+        threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = random.randint(1,100)
@@ -226,7 +226,7 @@ class Client:
 
     def polling_service(self):
         try:
-            wait = 10 # 20 segundos
+            wait = 5 # MUDAR PARA 0.5S !!!!!!!!!!!!!!!!
             
             while True:
                 msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
