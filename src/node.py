@@ -290,10 +290,12 @@ class Node:
                 data, _ = data_socket.recvfrom(20480)
 
                 self.streams_lock.acquire()
+
                 if content not in self.streams:
                     self.streams[content] = 0
+                else:
+                    self.streams[content] += 1
                 self.streams_lock.release()
-
 
                 self.tree_lock.acquire()
 

@@ -224,7 +224,7 @@ class RP(Node):
                 
                 if best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
-
+                    
                     tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.streams[stream], contents=[stream]).serialize(), (best_server[0], 7777))
 
                     self.servers[streaming_server].status = False

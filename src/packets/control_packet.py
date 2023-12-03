@@ -14,6 +14,7 @@ class ControlPacket:
         self.response = response # Alterar para bit
         self.error = error # Alterar para bit
         self.has_port = 0 # 1 bit para dizer se tem ou não porta na mensagem
+        self.has_frame = 0 # 1 bit para dizer se tem ou não frame nr na mensagem
         self.latency = latency
         self.port = port
         self.frame_number = frame_number

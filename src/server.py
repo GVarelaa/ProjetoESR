@@ -85,7 +85,8 @@ class Server:
 
     def send_rtp(self, addr, port, frame_number, send_stream_socket, filename):
         """Send RTP packets over UDP."""
-        self.videostreams[filename].seek_to_frame(frame_number)
+        if frame_number is not None:
+            self.videostreams[filename].seek_to_frame(frame_number)
         
         self.logger.info(f"Streaming Service: Sending RTP Packets to {addr}")
         while True:
