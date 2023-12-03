@@ -94,7 +94,7 @@ class Server:
 
         self.logger.info(f"Streaming Service: Sending RTP Packets to {addr}")
         while True:
-            self.event.wait(0.05)
+            self.events[filename].wait(0.05)
             
             # Stop sending if request is PAUSE or TEARDOWN
             if self.events[filename].is_set():
@@ -108,7 +108,7 @@ class Server:
                     packet =  self.make_rtp(data, frame_nr)
                     send_stream_socket.sendto(packet, (addr, port))
 
-                    self.logger.debug(f"Streaming Service: RTP Packet {frame_nr} sent to {addr[0]}")
+                    self.logger.debug(f"Streaming Service: RTP Packet {frame_nr} sent to {addr}")
                 except:
                     self.logger.debug(f"Streaming Service: An error occurred sending RTP Packet {frame_nr} to {addr[0]}")
         

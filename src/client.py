@@ -21,7 +21,6 @@ class Client:
         self.master = master
         self.videofile = videofile
         self.neighbour = None
-        self.rp = None
 
         address = bootstrapper.split(":")
         self.bootstrapper = (address[0], int(address[1]))
@@ -42,7 +41,7 @@ class Client:
         self.setup() # Request neighbours
 
         threading.Thread(target=self.control_service, args=()).start()
-        threading.Thread(target=self.polling_service, args=()).start()
+        #threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = random.randint(1,100)
@@ -195,8 +194,6 @@ class Client:
         if msg.type == ControlPacket.PLAY and msg.response == 1:
             self.logger.info(f"Control Service: Confirmation message received from {address[0]}")
             self.logger.debug(f"Message received: {msg}")
-
-            self.rp = msg.source_ip
 
             threading.Thread(target=self.listen_rtp, args=(msg.port,)).start()
             self.play_event = threading.Event()

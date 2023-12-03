@@ -177,7 +177,7 @@ class RP(Node):
     def tracking_service(self):
         tracking_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         tracking_socket.bind(("", 5000))
-
+        
         delay = 2
         tracking_socket.settimeout(delay)
 
@@ -185,22 +185,23 @@ class RP(Node):
         while True:
             for server in self.servers:
                 initial_timestamp = datetime.now()
-                self.tracking_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
+                tracking_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
 
                 self.logger.info(f"Tracking Service: Monitorization messages sent to {server}")
 
                 try:
-                    _, address = self.tracking_socket.recvfrom(1024)
+                    data, address = tracking_socket.recvfrom(1024)
+                    msg = ControlPacket.deserialize(data)
 
                     self.servers_lock.acquire()
-                    self.servers[address[0]].update_metrics(True, delay, initial_timestamp, datetime.now())
+                    self.servers[address[0]].update_metrics(True, delay, initial_timestamp=initial_timestamp, final_timestamp=datetime.now(), contents=msg.contents)
                     self.servers_lock.release()
 
                     self.logger.info(f"Tracking Service: Metrics updated for {server}")
                 
                 except socket.timeout:
                     self.servers_lock.acquire()
-                    self.servers[address[0]].update_metrics(False, delay)
+                    self.servers[server].update_metrics(False, delay)
                     self.servers_lock.release()
 
                     self.logger.info(f"Tracking Service: Timeout occurred for {server}")
@@ -212,25 +213,24 @@ class RP(Node):
                 streaming_server = None
 
                 self.servers_lock.acquire()
-                for server, value in self.servers:
+                for server, value in self.servers.items():
                     if stream in value.contents:
                         if value.status:
                             streaming_server = server
-
-                        if best_server is None:
-                            best_server = server
-                        elif best_server.metric > value.metric:
-                            best_server = server
-                
+                        if best_server is not None:
+                            if best_server[1] > value.metric:
+                                best_server = (server, value.metric)
+                        else:
+                            best_server = (server, value.metric)
                 self.servers_lock.release()
                 
                 if best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
 
-                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream] ,contents=[stream]).serialize(), (best_server, 7777))
+                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream] ,contents=[stream]).serialize(), (best_server[0], 7777))
 
                     self.servers[streaming_server].status = False
-                    self.servers[best_server].status = True
+                    self.servers[best_server[0]].status = True
             
             self.streams_lock.release()
 

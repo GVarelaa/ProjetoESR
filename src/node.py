@@ -48,7 +48,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        threading.Thread(target=self.pruning_service, args=()).start()
+        #threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         threading.Thread(target=self.measure_service, args=()).start()
         
