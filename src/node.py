@@ -272,7 +272,7 @@ class Node:
         wait = 5
         while True:
             for neighbour in self.neighbours:
-                message = ControlPacket(ControlPacket.MEASURE)
+                message = ControlPacket(ControlPacket.MEASURE, latency=float(datetime.now().timestamp()))
                 self.control_socket.sendto(message.serialize(), (neighbour, 7777))
             
             self.logger.info(f"Measure Service: Monitorization messages sent to {self.neighbours}")
@@ -293,8 +293,9 @@ class Node:
 
                 self.streams_lock.acquire()
 
+                print(self.tree)
+
                 if content not in self.streams:
-                    print("ola")
                     self.streams[content] = 0
                 else:
                     self.streams[content] += 1
@@ -320,6 +321,7 @@ class Node:
 
                 for step in steps:
                     data_socket.sendto(data, (step, port))
+                    print(step)
                     self.logger.debug(f"Streaming Service: RTP Packet sent to {step}")
             
         except socket.error as e:
