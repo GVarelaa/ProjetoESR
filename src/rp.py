@@ -93,8 +93,6 @@ class RP(Node):
 
                 content = msg.contents[0]
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
-                    self.streams.append(content)
-
                     port = None
                     if content in self.ports:
                         port = self.ports[content]
@@ -143,7 +141,7 @@ class RP(Node):
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
-                        self.streams.remove(content)
+                        self.streams.pop(content)
                         self.streams_lock.release()
 
             self.tree_lock.release()
@@ -227,7 +225,7 @@ class RP(Node):
                 if best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
 
-                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream] ,contents=[stream]).serialize(), (best_server[0], 7777))
+                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.streams[stream], contents=[stream]).serialize(), (best_server[0], 7777))
 
                     self.servers[streaming_server].status = False
                     self.servers[best_server[0]].status = True

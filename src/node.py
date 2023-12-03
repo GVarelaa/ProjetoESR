@@ -20,7 +20,7 @@ class Node:
 
         self.neighbours = list()
     
-        self.streams = list() # Lista com as streams atuais
+        self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
         self.streams_lock = threading.Lock()
 
         self.tree = dict() # {conteudo -> {cliente -> {vizinho -> measureEntry} } }
@@ -181,7 +181,7 @@ class Node:
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
-                        self.streams.remove(content)
+                        self.streams.pop(content)
                         self.streams_lock.release()
 
             self.tree_lock.release()
@@ -258,7 +258,7 @@ class Node:
 
                         if len(list(self.tree[content].keys())) == 0:
                             self.streams_lock.acquire()
-                            self.streams.remove(content)
+                            self.streams.pop(content)
                             self.streams_lock.release()
             
             self.tree_lock.release()
@@ -291,7 +291,7 @@ class Node:
 
                 self.streams_lock.acquire()
                 if content not in self.streams:
-                    self.streams.append(content)
+                    self.streams[content] = 0
                 self.streams_lock.release()
 
 

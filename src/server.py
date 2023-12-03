@@ -32,12 +32,6 @@ class Server:
 
     def control_worker(self, addr, msg):
         """Process RTSP request sent from the client."""
-        # Get the media file name
-        #filename = line1[1]
-        
-        # Get the RTSP sequence number 
-        #seq = request[1].split(' ')
-        
         if msg.type == ControlPacket.PLAY and msg.response == 0:
             self.logger.info(f"Control Service: Streaming request received from {addr[0]}")
             self.logger.debug(f"Message received: {msg}")
@@ -49,7 +43,7 @@ class Server:
                 
                 # Create a new thread and start sending RTP packets
                 self.events[filename] = threading.Event()
-                threading.Thread(target=self.send_rtp, args=(addr[0], msg.port, send_socket, filename)).start()
+                threading.Thread(target=self.send_rtp, args=(addr[0], msg.port, msg.frame_number, send_socket, filename)).start()
             else:
                 msg.error = 1
                 self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
@@ -89,9 +83,10 @@ class Server:
             self.control_socket.close()
 
 
-    def send_rtp(self, addr, port, send_stream_socket, filename):
+    def send_rtp(self, addr, port, frame_number, send_stream_socket, filename):
         """Send RTP packets over UDP."""
-
+        self.videostreams[filename].seek_to_frame(frame_number)
+        
         self.logger.info(f"Streaming Service: Sending RTP Packets to {addr}")
         while True:
             self.events[filename].wait(0.05)
