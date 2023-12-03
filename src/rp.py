@@ -1,7 +1,5 @@
 import argparse
-import json
 import threading
-import logging
 import time
 import socket
 from datetime import datetime
@@ -43,7 +41,7 @@ class RP(Node):
                     self.neighbours = msg.neighbours
 
                     for server in msg.servers:
-                        self.servers[server] = None
+                        self.servers[server] = StatusEntry()
                     
                     self.logger.info("Setup: Neighbours and servers received")
                     self.logger.debug(f"Neighbours: {self.neighbours}")
@@ -112,7 +110,7 @@ class RP(Node):
                     self.servers_lock.acquire()
                     best_server = None
                     for server, value in self.servers.items():
-                        if value is not None and content in value.contents:
+                        if content in value.contents:
                             if best_server is not None:
                                 if best_server[1] > value.metric:
                                     best_server = (server, value.metric)
@@ -121,6 +119,8 @@ class RP(Node):
                     self.servers_lock.release()
 
                     self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
+
+                    self.servers[best_server[0]].status = True # Verificar dps
 
                     self.logger.info(f"Control Service: Streaming request sent to server {best_server[0]}")
                     self.logger.debug(f"Message sent: {msg}")
@@ -149,22 +149,6 @@ class RP(Node):
             self.tree_lock.release()
             
             self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
-
-
-        elif msg.type == ControlPacket.STATUS and msg.response == 1:
-            self.logger.info(f"Control Service: Status response received from server {address[0]}")
-            self.logger.debug(f"Message received: {msg}")
-
-            actual_timestamp = float(datetime.now().timestamp())
-            latency = actual_timestamp - msg.latency
-
-            self.servers_lock.acquire()
-
-            self.servers[address[0]] = StatusEntry(latency, msg.contents, True)
-
-            self.logger.info(f"Control Service: Status from {address} was updated")
-
-            self.servers_lock.release()
         
         elif msg.type == ControlPacket.MEASURE:
             if msg.response == 0:
@@ -191,13 +175,65 @@ class RP(Node):
 
 
     def tracking_service(self):
-        wait = 20
+        tracking_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        tracking_socket.bind(("", 5000))
+
+        delay = 2
+        tracking_socket.settimeout(delay)
+
+        wait = 6
         while True:
             for server in self.servers:
-                self.control_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
+                initial_timestamp = datetime.now()
+                self.tracking_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
 
-                self.logger.info(f"Tracking Service: Monitorization message sent to {server}")
-                    
+                self.logger.info(f"Tracking Service: Monitorization messages sent to {server}")
+
+                try:
+                    _, address = self.tracking_socket.recvfrom(1024)
+
+                    self.servers_lock.acquire()
+                    self.servers[address[0]].update_metrics(True, delay, initial_timestamp, datetime.now())
+                    self.servers_lock.release()
+
+                    self.logger.info(f"Tracking Service: Metrics updated for {server}")
+                
+                except socket.timeout:
+                    self.servers_lock.acquire()
+                    self.servers[address[0]].update_metrics(False, delay)
+                    self.servers_lock.release()
+
+                    self.logger.info(f"Tracking Service: Timeout occurred for {server}")
+
+            # Update do servidor se necessário
+            self.streams_lock.acquire()
+            for stream in self.streams:
+                best_server = None
+                streaming_server = None
+
+                self.servers_lock.acquire()
+                for server, value in self.servers:
+                    if stream in value.contents:
+                        if value.status:
+                            streaming_server = server
+
+                        if best_server is None:
+                            best_server = server
+                        elif best_server.metric > value.metric:
+                            best_server = server
+                
+                self.servers_lock.release()
+                
+                if best_server != streaming_server:
+                    tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
+
+                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream] ,contents=[stream]).serialize(), (best_server, 7777))
+
+                    self.servers[streaming_server].status = False
+                    self.servers[best_server].status = True
+            
+            self.streams_lock.release()
+
             time.sleep(wait) 
 
 

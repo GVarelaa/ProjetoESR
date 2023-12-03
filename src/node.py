@@ -242,7 +242,6 @@ class Node:
             self.last_contacts_lock.acquire()
 
             for client, last_contact in self.last_contacts.items():
-                print(timestamp - last_contact)
                 if timestamp - last_contact > 10: # TEMOS DE MUDAR PARA 1 !!!!!!!!!!!!!!!!!!!!!!!!!
                     to_remove.append(client)
 

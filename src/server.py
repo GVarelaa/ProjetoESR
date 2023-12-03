@@ -17,8 +17,8 @@ class Server:
             
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.control_socket.bind(('', 7777))
-        self.event = threading.Event()
-        #self.worker = threading.Thread(target=self.send_rtp).start()
+
+        self.events = dict()
 
         if debug_mode:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
@@ -48,12 +48,21 @@ class Server:
                 send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
                 # Create a new thread and start sending RTP packets
-                #self.event = threading.Event()
+                self.events[filename] = threading.Event()
                 threading.Thread(target=self.send_rtp, args=(addr[0], msg.port, send_socket, filename)).start()
             else:
                 msg.error = 1
                 self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
         
+        elif msg.type == ControlPacket.LEAVE and msg.response == 0:
+            self.logger.info(f"Control Service: Leave request received from {addr[0]}")
+            self.logger.debug(f"Message received: {msg}")
+
+            filename = msg.contents[0]
+
+            self.events[filename].set()
+
+
         elif msg.type == ControlPacket.STATUS and msg.response == 0:
             actual_timestamp = float(datetime.now().timestamp())
             
@@ -62,6 +71,7 @@ class Server:
 
             self.logger.info(f"Control Service: Metrics sent to {addr[0]}")
             self.logger.debug(f"Message sent: {msg}")
+
 
 
     def control_service(self):
@@ -87,8 +97,8 @@ class Server:
             self.event.wait(0.05)
             
             # Stop sending if request is PAUSE or TEARDOWN
-            #if self.event.isSet():
-            #    break
+            if self.events[filename].is_set():
+                break
                 
             data = self.videostreams[filename].get_next_frame()
             
@@ -101,7 +111,8 @@ class Server:
                     self.logger.debug(f"Streaming Service: RTP Packet {frame_nr} sent to {addr[0]}")
                 except:
                     self.logger.debug(f"Streaming Service: An error occurred sending RTP Packet {frame_nr} to {addr[0]}")
-
+        
+        send_stream_socket.close()
 
 
     def make_rtp(self, payload, frame_nr):
