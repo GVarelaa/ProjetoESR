@@ -85,9 +85,9 @@ class Node:
     
 
     def insert_tree(self, message, address):
-        client = message.source_ip
-        neighbour = address[0]
+        client = message.hops[0]
         content = message.contents[0]
+        neighbour = address[0]
 
         self.tree_lock.acquire()
 
@@ -108,8 +108,11 @@ class Node:
 
     @abstractmethod
     def control_worker(self, address, msg):
-        if msg.source_ip == "0.0.0.0":
-            msg.source_ip = address[0]
+        # Se tem ciclos
+        if address[0] in msg.hops:
+            return
+        
+        msg.hops.append(address[0])
         
         if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
@@ -134,10 +137,8 @@ class Node:
                 self.logger.debug(f"Message received: {msg}")
 
                 self.last_contacts_lock.acquire()
-                self.last_contacts[msg.source_ip] = float(datetime.now().timestamp())
+                self.last_contacts[msg.hops[0]] = float(datetime.now().timestamp())
                 self.last_contacts_lock.release()
-
-                msg.last_hop = address[0]
 
                 self.insert_tree(msg, address)
 
@@ -294,10 +295,10 @@ class Node:
                     self.streams.append(content)
                 self.streams_lock.release()
 
+
                 self.tree_lock.acquire()
 
                 steps = set()
-
                 for client, next_steps in self.tree[content].items():
                     best_step = None
 
@@ -319,7 +320,8 @@ class Node:
             
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:      
-                data_socket.close()    
+                #data_socket.close()
+                print("mudar")    
 
         finally:
             data_socket.close()

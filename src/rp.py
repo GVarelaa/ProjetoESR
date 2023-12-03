@@ -59,8 +59,11 @@ class RP(Node):
 
 
     def control_worker(self, address, msg):
-        if msg.source_ip == "0.0.0.0":
-            msg.source_ip = address[0]
+        # Se tem ciclos
+        if address[0] in msg.hops:
+            return
+        
+        msg.hops.append(address[0])
 
         if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
@@ -85,7 +88,7 @@ class RP(Node):
                 self.logger.debug(f"Message received: {msg}")
 
                 self.last_contacts_lock.acquire()
-                self.last_contacts[msg.source_ip] = float(datetime.now().timestamp())
+                self.last_contacts[msg.hops[0]] = float(datetime.now().timestamp())
                 self.last_contacts_lock.release()
 
                 self.insert_tree(msg, address) # Enviar para trás (source_ip=cliente)
