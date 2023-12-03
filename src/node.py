@@ -142,16 +142,16 @@ class Node:
 
                 self.insert_tree(msg, address)
 
-                if not msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
-                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
-                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                            self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
-                            self.logger.debug(f"Message sent: {msg}")
-                else:
+                if msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
                     self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=self.ports[msg.contents[0]], contents=[msg.contents[0]]).serialize(), (address[0], 7777))
                     self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
                     self.logger.debug(f"Message sent: {msg}")
+
+                for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
+                    if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                        self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                        self.logger.debug(f"Message sent: {msg}")
 
             elif msg.response == 1:
                 self.ports[msg.contents[0]] = msg.port # guardar porta
@@ -176,8 +176,10 @@ class Node:
             self.tree_lock.acquire()
 
             if content in self.tree:
-                if address[0] in self.tree[content]:
-                    self.tree[content].pop(address[0])
+                client = msg.hops[0]
+
+                if client in self.tree[content]:
+                    self.tree[content].pop(client)
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
@@ -186,7 +188,7 @@ class Node:
 
             self.tree_lock.release()
             
-            self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
+            self.logger.debug(f"Control Service: Client {client} was removed from tree")
         
             for neighbour in self.neighbours:
                 if neighbour != address[0]:
@@ -292,6 +294,7 @@ class Node:
                 self.streams_lock.acquire()
 
                 if content not in self.streams:
+                    print("ola")
                     self.streams[content] = 0
                 else:
                     self.streams[content] += 1

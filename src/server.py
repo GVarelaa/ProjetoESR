@@ -54,6 +54,7 @@ class Server:
 
             filename = msg.contents[0]
 
+            self.videostreams[filename].restart()
             self.events[filename].set()
 
 

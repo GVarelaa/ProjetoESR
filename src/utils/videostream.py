@@ -24,6 +24,11 @@ class VideoStream:
 			else:
 				self.file.seek(0)
 				data = self.get_next_frame()
+	
+
+	def restart(self):
+		self.file.seek(0)
+		self.frame_nr = 0
 
 
 	def get_next_frame(self):

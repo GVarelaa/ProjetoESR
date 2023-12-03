@@ -110,12 +110,15 @@ class Client:
 
     def stop_movie(self):
         """Stop button handler."""
+        self.frame_nr = 0
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
         
 
     def exit_client(self):
         """Exit button handler."""
+        self.frame_nr = 0
+        
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
         

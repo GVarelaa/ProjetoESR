@@ -136,17 +136,26 @@ class RP(Node):
             self.tree_lock.acquire()
 
             if content in self.tree:
-                if address[0] in self.tree[content]:
-                    self.tree[content].pop(address[0])
+                client = msg.hops[0]
+
+                if client in self.tree[content]:
+                    self.tree[content].pop(client)
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
                         self.streams.pop(content)
                         self.streams_lock.release()
 
+                        self.servers_lock.acquire()
+                        for server, status_info in self.servers.items():
+                            if status_info.status and content in status_info.contents:
+                                self.control_socket.sendto(msg.serialize(), (server, 7777))
+                        self.servers_lock.release()
+
             self.tree_lock.release()
             
-            self.logger.debug(f"Control Service: Client {address[0]} was removed from tree")
+            self.logger.debug(f"Control Service: Client {client} was removed from tree")
+
         
         elif msg.type == ControlPacket.MEASURE:
             if msg.response == 0:
@@ -224,7 +233,7 @@ class RP(Node):
                 
                 if best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
-                    
+
                     tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.streams[stream], contents=[stream]).serialize(), (best_server[0], 7777))
 
                     self.servers[streaming_server].status = False
@@ -232,8 +241,7 @@ class RP(Node):
             
             self.streams_lock.release()
 
-            time.sleep(wait) 
-
+            time.sleep(wait)
 
 
 def main():
