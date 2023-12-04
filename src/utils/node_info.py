@@ -1,4 +1,4 @@
-class MeasureEntry:
+class NodeInfo:
     def __init__(self, address, delay, loss):
         self.address = address
         self.delay = delay

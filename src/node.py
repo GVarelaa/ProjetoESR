@@ -7,7 +7,7 @@ import logging
 import errno
 from datetime import datetime
 from packets.control_packet import ControlPacket
-from utils.measure_entry import MeasureEntry
+from utils.node_info import NodeInfo
 from abc import abstractmethod
 from math import inf
 
@@ -23,7 +23,7 @@ class Node:
         self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
         self.streams_lock = threading.Lock()
 
-        self.tree = dict() # {conteudo -> {cliente -> best measureEntry } }
+        self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
         self.tree_lock = threading.Lock()
 
         self.last_contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
@@ -95,7 +95,7 @@ class Node:
         if content not in self.tree:
             self.tree[content] = dict()
 
-        self.tree[content][client] = MeasureEntry(neighbour, msg.latency, 0)
+        self.tree[content][client] = NodeInfo(neighbour, msg.latency, 0)
 
         self.logger.debug(f"Control Service: Added client {client} to tree")
 

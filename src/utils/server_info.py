@@ -1,7 +1,7 @@
 from math import inf
 from datetime import datetime
 
-class StatusEntry:
+class ServerInfo:
     def __init__(self):
         self.metric = inf
         self.delay = None

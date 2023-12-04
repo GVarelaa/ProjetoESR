@@ -5,8 +5,8 @@ import socket
 from datetime import datetime
 from node import Node
 from packets.control_packet import ControlPacket
-from utils.measure_entry import MeasureEntry
-from utils.status_entry import StatusEntry
+from utils.node_info import NodeInfo
+from utils.server_info import ServerInfo
 
 class RP(Node):
     def __init__(self, bootstrapper, is_bootstrapper=False, file=None, debug_mode=False):        
@@ -41,7 +41,7 @@ class RP(Node):
                     self.neighbours = msg.neighbours
 
                     for server in msg.servers:
-                        self.servers[server] = StatusEntry()
+                        self.servers[server] = ServerInfo()
                     
                     self.logger.info("Setup: Neighbours and servers received")
                     self.logger.debug(f"Neighbours: {self.neighbours}")
@@ -71,7 +71,7 @@ class RP(Node):
             self.tree[content] = dict()
 
         if client not in self.tree[content]:
-            self.tree[content][client] = MeasureEntry(neighbour, delay, 0)
+            self.tree[content][client] = NodeInfo(neighbour, delay, 0)
             self.logger.debug(f"Control Service: Added client {client} to tree")
             
             self.control_socket.sendto(msg.serialize(), (self.tree[content][client].address, 7777))
