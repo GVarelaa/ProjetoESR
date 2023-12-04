@@ -56,12 +56,56 @@ class RP(Node):
                 exit()
 
 
+    def insert_tree(self, msg, port):
+        delay = float(datetime.now().timestamp()) - msg.latency
+
+        client = msg.hops[0]
+        content = msg.contents[0]
+        neighbour = msg.hops.pop()
+        msg.response = 1
+        msg.port = port
+
+        self.tree_lock.acquire()
+
+        if content not in self.tree:
+            self.tree[content] = dict()
+
+        if client not in self.tree[content]:
+            self.tree[content][client] = MeasureEntry(neighbour, delay, 0)
+            self.logger.debug(f"Control Service: Added client {client} to tree")
+            
+            self.control_socket.sendto(msg.serialize(), (self.tree[content][client].address, 7777))
+
+        else:
+            if self.tree[content][client].delay > delay: # ACRESCENTAR LOSS
+                next_step = MeasureEntry(neighbour, delay, 0)
+                self.logger.debug(f"Control Service: Updated client {client} in tree")
+
+                self.control_socket.sendto(msg.serialize(), (self.tree[content][client].address, 7777))
+
+        self.tree_lock.release()
+
+
+    def get_port(self, content):
+        port = None
+
+        if content in self.ports:
+            port = self.ports[content]
+        else:
+            port = self.initial_port
+            self.ports[content] = port
+            self.initial_port += 1
+
+        return port
+
+
     def control_worker(self, address, msg):
         # Se tem ciclos
         if address[0] in msg.hops:
             return
         
-        msg.hops.append(address[0])
+        if msg.response == 0:
+            msg.hops.append(address[0])
 
         if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
@@ -89,22 +133,11 @@ class RP(Node):
                 self.last_contacts[msg.hops[0]] = float(datetime.now().timestamp())
                 self.last_contacts_lock.release()
 
-                self.insert_tree(msg, address) # Enviar para trás (source_ip=cliente)
-
+                port = self.get_port(msg.contents[0])
+                self.insert_tree(msg, port)
+                
                 content = msg.contents[0]
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
-                    port = None
-                    if content in self.ports:
-                        port = self.ports[content]
-                    else:
-                        port = self.initial_port
-                        self.ports[content] = port
-                        self.initial_port += 1
-
-                    # FAZER FLOOD DA PORTA PROS VIZINHOS?
-                    for neighbour in self.neighbours:
-                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=port, contents=[content]).serialize(), (neighbour, 7777))
-
                     self.servers_lock.acquire()
                     best_server = None
                     for server, value in self.servers.items():
@@ -115,7 +148,7 @@ class RP(Node):
                             else:
                                 best_server = (server, value.metric)
                     self.servers_lock.release()
-
+                    
                     self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
 
                     self.servers[best_server[0]].status = True # Verificar dps
@@ -155,30 +188,6 @@ class RP(Node):
             self.tree_lock.release()
             
             self.logger.debug(f"Control Service: Client {client} was removed from tree")
-
-        
-        elif msg.type == ControlPacket.MEASURE:
-            if msg.response == 0:
-                self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {msg}")
-
-                msg.response = 1
-                self.control_socket.sendto(msg.serialize(), (address[0], 7777))
-            
-            elif msg.response == 1:
-                # TER CUIDADO COM AS INTERFACES
-                self.logger.info(f"Control Service: Measure response received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {msg}")
-
-                self.tree_lock.acquire()
-                
-                for content, clients in self.tree.items():
-                    for client in clients:
-                        if address[0] in self.tree[content][client]:
-                            delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
-                            self.tree[content][client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
-
-                self.tree_lock.release()
 
 
     def tracking_service(self):

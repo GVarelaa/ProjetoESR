@@ -23,7 +23,7 @@ class Node:
         self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
         self.streams_lock = threading.Lock()
 
-        self.tree = dict() # {conteudo -> {cliente -> {vizinho -> measureEntry} } }
+        self.tree = dict() # {conteudo -> {cliente -> best measureEntry } }
         self.tree_lock = threading.Lock()
 
         self.last_contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
@@ -50,7 +50,6 @@ class Node:
         # Services
         #threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
-        threading.Thread(target=self.measure_service, args=()).start()
         
 
     @abstractmethod
@@ -84,24 +83,21 @@ class Node:
                 exit()
     
 
-    def insert_tree(self, message, address):
-        client = message.hops[0]
-        content = message.contents[0]
-        neighbour = address[0]
+    @abstractmethod
+    def insert_tree(self, msg):
+        print(msg.hops)
+        client = msg.hops[0]
+        content = msg.contents[0]
+        neighbour = msg.hops[-1]
 
         self.tree_lock.acquire()
 
         if content not in self.tree:
             self.tree[content] = dict()
-        
-        if client in self.tree[content]:
-                self.tree[content][client][neighbour] = None
 
-        else:
-            self.tree[content][client] = dict()
-            self.tree[content][client][neighbour] = None
+        self.tree[content][client] = MeasureEntry(neighbour, msg.latency, 0)
 
-            self.logger.debug(f"Control Service: Added client {client} to tree")
+        self.logger.debug(f"Control Service: Added client {client} to tree")
 
         self.tree_lock.release()
 
@@ -112,7 +108,8 @@ class Node:
         if address[0] in msg.hops:
             return
         
-        msg.hops.append(address[0])
+        if msg.response == 0:
+            msg.hops.append(address[0])
         
         if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
             neighbours = list()
@@ -140,13 +137,6 @@ class Node:
                 self.last_contacts[msg.hops[0]] = float(datetime.now().timestamp())
                 self.last_contacts_lock.release()
 
-                self.insert_tree(msg, address)
-
-                if msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
-                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=self.ports[msg.contents[0]], contents=[msg.contents[0]]).serialize(), (address[0], 7777))
-                    self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
-                    self.logger.debug(f"Message sent: {msg}")
-
                 for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
                     if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
                         self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
@@ -158,11 +148,13 @@ class Node:
                 # ABRIR O SOCKET COM A PORTA PASSADA PRA RECEBER A STREAM E CRIAR THREAD PRA LISTEN
                 # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
 
-                for neighbour in self.neighbours:
-                    if neighbour != address[0]:
-                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=msg.port, contents=[msg.contents[0]]).serialize(), (neighbour, 7777))
-                        self.logger.info(f"Control Service: Port message sent to neighbour {neighbour}")
-                        self.logger.debug(f"Message sent: {msg}")
+                self.insert_tree(msg)
+
+                neighbour = msg.hops.pop()
+
+                self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=msg.port, contents=[msg.contents[0]]).serialize(), (neighbour, 7777))
+                self.logger.info(f"Control Service: Port message sent to neighbour {neighbour}")
+                self.logger.debug(f"Message sent: {msg}")
                 
                 threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
 
@@ -196,29 +188,6 @@ class Node:
                     self.logger.info(f"Control Service: Leave message sent to neighbour {neighbour}")
                     self.logger.debug(f"Message sent: {msg}")
 
-        elif msg.type == ControlPacket.MEASURE:
-            if msg.response == 0:
-                self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {msg}")
-
-                msg.response = 1
-                self.control_socket.sendto(msg.serialize(), (address[0], 7777))
-            
-            elif msg.response == 1:
-                # TER CUIDADO COM AS INTERFACES
-                self.logger.info(f"Control Service: Measure response received from neighbour {address[0]}")
-                self.logger.debug(f"Message received: {msg}")
-
-                self.tree_lock.acquire()
-                
-                for content, clients in self.tree.items():
-                    for client in clients:
-                        if address[0] in self.tree[content][client]:
-                            delay = float(datetime.now().timestamp()) - msg.latency# delay ou latencia que se chama?
-                            self.tree[content][client][address[0]] = MeasureEntry(delay, 0) # FAZER O LOSS
-
-                self.tree_lock.release()
-
 
     def control_service(self):
         try:
@@ -237,7 +206,7 @@ class Node:
     def pruning_service(self):
         wait = 20 # 20 segundos
         while True:
-            print(self.last_contacts)
+            #print(self.last_contacts)
             timestamp = float(datetime.now().timestamp())
             to_remove = list()
 
@@ -267,18 +236,6 @@ class Node:
 
             time.sleep(wait)
 
-    
-    def measure_service(self):
-        wait = 5
-        while True:
-            for neighbour in self.neighbours:
-                message = ControlPacket(ControlPacket.MEASURE, latency=float(datetime.now().timestamp()))
-                self.control_socket.sendto(message.serialize(), (neighbour, 7777))
-            
-            self.logger.info(f"Measure Service: Monitorization messages sent to {self.neighbours}")
-
-            time.sleep(wait)
-
 
     def listen_rtp(self, port, content):
         data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -293,7 +250,7 @@ class Node:
 
                 self.streams_lock.acquire()
 
-                print(self.tree)
+                #print(self.tree)
 
                 if content not in self.streams:
                     self.streams[content] = 0
@@ -304,25 +261,16 @@ class Node:
                 self.tree_lock.acquire()
 
                 steps = set()
-                for client, next_steps in self.tree[content].items():
-                    best_step = None
-
-                    for step, measure in next_steps.items():
-                        if measure is not None and best_step is not None:
-                            if best_step[1] > measure.delay:
-                                best_step = (step, measure.delay)
-                        elif measure is not None:
-                            best_step = (step, measure.delay)
-                        else:
-                            best_step = (step, inf)
-                    steps.add(best_step[0])
+                clients = self.tree[content]
+                for step in clients.values():
+                    steps.add(step)
                     
                 self.tree_lock.release()
 
                 for step in steps:
-                    data_socket.sendto(data, (step, port))
-                    print(step)
-                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step}")
+                    data_socket.sendto(data, (step.address, port))
+                    #print(step.address)
+                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step.address}")
             
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:      

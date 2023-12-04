@@ -102,7 +102,7 @@ class Client:
 
     def play_movie(self):
         """Play button handler."""
-        msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
+        msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
         self.logger.debug(f"Message sent: {msg}")
@@ -229,7 +229,7 @@ class Client:
             wait = 5 # MUDAR PARA 0.5S !!!!!!!!!!!!!!!!
             
             while True:
-                msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
+                msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), contents=[self.videofile])
 
                 self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
