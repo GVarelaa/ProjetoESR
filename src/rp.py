@@ -56,12 +56,11 @@ class RP(Node):
                 exit()
 
 
-    def insert_tree(self, msg, port):
-        delay = float(datetime.now().timestamp()) - msg.latency
-
+    def insert_tree(self, msg, address, port):
         client = msg.hops[0]
         content = msg.contents[0]
-        neighbour = msg.hops.pop()
+        seq_num = msg.seq_num
+        neighbour = address
         msg.response = 1
         msg.port = port
 
@@ -71,17 +70,17 @@ class RP(Node):
             self.tree[content] = dict()
 
         if client not in self.tree[content]:
-            self.tree[content][client] = NodeInfo(neighbour, delay, 0)
+            self.tree[content][client] = NodeInfo(neighbour, seq_num)
             self.logger.debug(f"Control Service: Added client {client} to tree")
             
-            self.control_socket.sendto(msg.serialize(), (self.tree[content][client].address, 7777))
+            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         else:
-            if self.tree[content][client].delay > delay: # ACRESCENTAR LOSS
-                next_step = MeasureEntry(neighbour, delay, 0)
+            if self.tree[content][client].seq_num < seq_num:
+                self.tree[content][client] = NodeInfo(neighbour, seq_num)
                 self.logger.debug(f"Control Service: Updated client {client} in tree")
 
-                self.control_socket.sendto(msg.serialize(), (self.tree[content][client].address, 7777))
+                self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         self.tree_lock.release()
 
@@ -125,13 +124,23 @@ class RP(Node):
             self.logger.debug(f"Message: {msg}")
         
         elif msg.type == ControlPacket.PLAY:
-            if msg.response == 0:
+            if msg.nack == 1:
+                client = msg.hops[0]
+                content = msg.contents[0]
+                
+                self.tree_lock.acquire()
+                
+                try:
+                    self.tree[content].pop(client)
+                    self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
+                except:
+                    pass   
+
+                self.tree_lock.release()
+
+            elif msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
-
-                self.last_contacts_lock.acquire()
-                self.last_contacts[msg.hops[0]] = float(datetime.now().timestamp())
-                self.last_contacts_lock.release()
 
                 port = self.get_port(msg.contents[0])
                 self.insert_tree(msg, port)
