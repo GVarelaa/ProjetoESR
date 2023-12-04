@@ -168,11 +168,19 @@ class Node:
 
                 self.insert_tree(msg, address[0])
 
-                for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                    if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
-                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                        self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
-                        self.logger.debug(f"Message sent: {msg}")
+                if not msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
+                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
+                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                            self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                            self.logger.debug(f"Message sent: {msg}")
+                else:
+                    msg.response = 1
+                    msg.ports = self.ports[msg.contents[0]]
+                    
+                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+                    self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
+                    self.logger.debug(f"Message sent: {msg}")
 
             elif msg.response == 1:
                 self.ports[msg.contents[0]] = msg.port # guardar porta
