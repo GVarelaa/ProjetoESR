@@ -181,24 +181,37 @@ class RP(Node):
             content = msg.contents[0]
 
             self.tree_lock.acquire()
+            self.streams_lock.acquire()
+
+            print(self.tree)
+            print(msg.hops[0])
 
             if content in self.tree:
-                client = msg.hops[0]
+                to_remove = list()
 
-                if client in self.tree[content]:
+                for client, next_step in self.tree[content].items():
+                    if next_step.child == address[0]:
+                        to_remove.append(client)
+                
+                for client in to_remove:
                     self.tree[content].pop(client)
+                
+                print(self.tree)
                     
-                    if len(list(self.tree[content].keys())) == 0:
-                        self.streams_lock.acquire()
-                        self.streams.pop(content)
-                        self.streams_lock.release()
+                if len(list(self.tree[content].keys())) == 0:
+                    self.streams.pop(content)
 
-                        self.servers_lock.acquire()
-                        for server, status_info in self.servers.items():
-                            if status_info.status and content in status_info.contents:
-                                self.control_socket.sendto(msg.serialize(), (server, 7777))
-                        self.servers_lock.release()
+                    print(self.streams)
+                    
+                    self.servers_lock.acquire()
+                    for server, info in self.servers.items():
+                        if info.status and content in info.contents:
+                            self.control_socket.sendto(msg.serialize(), (server, 7777))
+                            self.logger.info(f"Control Service: Leave message sent to {server}")
+                            info.status = False
+                    self.servers_lock.release()
 
+            self.streams_lock.release()
             self.tree_lock.release()
             
             self.logger.debug(f"Control Service: Client {client} was removed from tree")
@@ -238,23 +251,28 @@ class RP(Node):
 
             # Update do servidor se necessário
             self.streams_lock.acquire()
+
             for stream in self.streams:
                 best_server = None
                 streaming_server = None
 
                 self.servers_lock.acquire()
-                for server, value in self.servers.items():
-                    if stream in value.contents:
-                        if value.status:
+
+                for server, info in self.servers.items():
+                    if stream in info.contents:
+                        if info.status:
                             streaming_server = server
+
                         if best_server is not None:
-                            if best_server[1] > value.metric:
-                                best_server = (server, value.metric)
+                            if best_server[1] > info.metric:
+                                best_server = (server, info.metric)
+
                         else:
-                            best_server = (server, value.metric)
+                            best_server = (server, info.metric)
+                            
                 self.servers_lock.release()
                 
-                if best_server != streaming_server:
+                if streaming_server is not None and best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
 
                     tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.streams[stream], contents=[stream]).serialize(), (best_server[0], 7777))

@@ -209,7 +209,7 @@ class Node:
                 client = msg.hops[0]
 
                 if client in self.tree[content]:
-                    self.tree[content].pop(client)
+                    next_step = self.tree[content].pop(client)
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
@@ -223,11 +223,10 @@ class Node:
 
                         self.streams_lock.release()
 
-                        for neighbour in self.neighbours:
-                            if neighbour != address[0]:
-                                self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                                self.logger.info(f"Control Service: Leave message sent to neighbour {neighbour}")
-                                self.logger.debug(f"Message sent: {msg}")
+                        
+                        self.control_socket.sendto(msg.serialize(), (next_step.parent, 7777))
+                        self.logger.info(f"Control Service: Leave message sent to neighbour {next_step.parent}")
+                        self.logger.debug(f"Message sent: {msg}")
 
             self.tree_lock.release()
 
@@ -296,12 +295,14 @@ class Node:
                     self.streams[content] = 0
                 else:
                     self.streams[content] += 1
+                    
                 self.streams_lock.release()
 
                 self.tree_lock.acquire()
 
                 steps = set()
                 clients = self.tree[content]
+
                 for step in clients.values():
                     steps.add(step)
                     
