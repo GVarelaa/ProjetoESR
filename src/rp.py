@@ -56,11 +56,10 @@ class RP(Node):
                 exit()
 
 
-    def insert_tree(self, msg, address, port):
+    def insert_tree(self, msg, neighbour, port):
         client = msg.hops[0]
         content = msg.contents[0]
-        seq_num = msg.seq_num
-        neighbour = address
+        seq_num = msg.seqnum
         msg.response = 1
         msg.port = port
 
@@ -76,10 +75,14 @@ class RP(Node):
             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         else:
-            if self.tree[content][client].seq_num < seq_num:
+            if self.tree[content][client].child_seqnum < seq_num:
                 self.tree[content][client] = NodeInfo(neighbour, seq_num)
                 self.logger.debug(f"Control Service: Updated client {client} in tree")
 
+                self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+            
+            else:
+                msg.nack = 1
                 self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         self.tree_lock.release()
@@ -99,6 +102,8 @@ class RP(Node):
 
 
     def control_worker(self, address, msg):
+        print(msg)
+        print(address[0])
         # Se tem ciclos
         if address[0] in msg.hops:
             return
@@ -134,7 +139,7 @@ class RP(Node):
                     self.tree[content].pop(client)
                     self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
                 except:
-                    pass   
+                    print("FUCK EXCEÇOES")
 
                 self.tree_lock.release()
 
@@ -143,7 +148,7 @@ class RP(Node):
                 self.logger.debug(f"Message received: {msg}")
 
                 port = self.get_port(msg.contents[0])
-                self.insert_tree(msg, port)
+                self.insert_tree(msg, address[0], port)
                 
                 content = msg.contents[0]
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream

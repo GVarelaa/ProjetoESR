@@ -8,11 +8,12 @@ class ControlPacket:
     LEAVE = 3
     MEASURE = 4
 
-    def __init__(self, msg_type, response=0, nack=0, latency=0, port=None, frame_number=None, hops=list(), neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, nack=0, seqnum=0, latency=0, port=None, frame_number=None, hops=list(), neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.response = response # Alterar para bit
         self.nack = nack # Alterar para bit
+        self.seqnum = seqnum
         self.has_port = 0 # 1 bit para dizer se tem ou não porta na mensagem
         self.has_frame = 0 # 1 bit para dizer se tem ou não frame nr na mensagem
         self.latency = latency
@@ -26,11 +27,11 @@ class ControlPacket:
 
     
     def __str__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | Latency: {self.latency} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Latency: {self.latency} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def __repr__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | Latency: {self.latency} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Latency: {self.latency} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def serialize_ip(self, ip):
@@ -55,6 +56,9 @@ class ControlPacket:
 
         # nack - 1 byte
         byte_array += self.nack.to_bytes(1, 'big')
+
+        # Sequence Number - 1 byte
+        byte_array += self.seqnum.to_bytes(1, 'big')
 
         # HasPort - 1 byte
         if self.port is not None:
@@ -132,6 +136,7 @@ class ControlPacket:
         msg_type = int.from_bytes(byte_array.read(1), byteorder='big')
         response = int.from_bytes(byte_array.read(1), byteorder='big')
         nack = int.from_bytes(byte_array.read(1), byteorder='big')
+        seqnum = int.from_bytes(byte_array.read(1), byteorder='big')
         has_port = int.from_bytes(byte_array.read(1), byteorder='big')
         has_number = int.from_bytes(byte_array.read(1), byteorder='big')
         latency = struct.unpack('>d', byte_array.read(8))[0]
@@ -167,5 +172,5 @@ class ControlPacket:
             string_len = int.from_bytes(byte_array.read(1), byteorder='big')
             contents.append(byte_array.read(string_len).decode('utf-8'))
         
-        return ControlPacket(msg_type, response=response, nack=nack, latency=latency, port=port, frame_number=frame_number , hops=hops, servers=servers, neighbours=neighbours, contents=contents)
+        return ControlPacket(msg_type, response=response, nack=nack, seqnum=seqnum, latency=latency, port=port, frame_number=frame_number , hops=hops, servers=servers, neighbours=neighbours, contents=contents)
     

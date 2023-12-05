@@ -87,7 +87,7 @@ class Node:
     def insert_tree(self, msg, neighbour):
         client = msg.hops[0]
         content = msg.contents[0]
-        seq_num = msg.seq_num
+        seq_num = msg.seqnum
 
         self.tree_lock.acquire()
 
@@ -101,28 +101,10 @@ class Node:
         self.tree_lock.release()
 
 
-    def update_tree(self, msg, neighbour):
-        client = msg.hops[0]
-        content = msg.contents[0]
-        seq_num = msg.seq_num
-
-        self.tree_lock.acquire()
-
-        parent_seqnum = self.tree[content][client].parent_seqnum
-        if parent_seqnum is None or parent_seqnum < seq_num:
-            self.tree[content][client].parent = neighbour
-            self.tree[content][client].parent_seqnum = seq_num
-        else:
-            msg.nack = 1
-            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-
-        self.logger.debug(f"Control Service: Added client {client} to tree")
-
-        self.tree_lock.release()
-
-
     @abstractmethod
     def control_worker(self, address, msg):
+        print(msg)
+        print(address[0])
         # Se tem ciclos
         if address[0] in msg.hops:
             return
@@ -157,8 +139,9 @@ class Node:
                 try:
                     self.tree[content].pop(client)
                     self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
+                
                 except:
-                    pass   
+                    print("FUCK EXCEÇOES")
 
                 self.tree_lock.release()
 
@@ -176,7 +159,7 @@ class Node:
                             self.logger.debug(f"Message sent: {msg}")
                 else:
                     msg.response = 1
-                    msg.ports = self.ports[msg.contents[0]]
+                    msg.port = self.ports[msg.contents[0]]
                     
                     self.control_socket.sendto(msg.serialize(), (address[0], 7777))
                     self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
@@ -197,13 +180,17 @@ class Node:
                     self.tree[content][client].parent = address[0]
                     self.tree[content][client].parent_seqnum = seqnum
 
-                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, response=1, port=msg.port, contents=[msg.contents[0]]).serialize(), (self.tree[content][client].child, 7777))
+                    msg.response = 1
+                    self.control_socket.sendto(msg.serialize(), (self.tree[content][client].child, 7777))
                     self.logger.info(f"Control Service: Port message sent to neighbour {self.tree[content][client].child}")
                     self.logger.debug(f"Message sent: {msg}")
-                else:
-                    msg.nack = 1
-                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
-                    self.logger.debug(f"Control Service: NACK sent to {address[0]}")
+
+                    for neighbour in self.neighbours:
+                        if neighbour != address[0] and neighbour != client and neighbour not in msg.hops:
+                            msg.nack = 1
+                            print(msg)
+                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                            self.logger.debug(f"Control Service: NACK sent to {neighbour}")
 
                 self.tree_lock.release()
                 
@@ -226,18 +213,23 @@ class Node:
                     
                     if len(list(self.tree[content].keys())) == 0:
                         self.streams_lock.acquire()
-                        self.streams.pop(content)
+                        
+                        try:
+                            self.streams.pop(content)
+                            self.logger.debug(f"Control Service: Client {client} was removed from tree")
+                        
+                        except:
+                            print("FUCK EXCEÇOES")
+
                         self.streams_lock.release()
 
+                        for neighbour in self.neighbours:
+                            if neighbour != address[0]:
+                                self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                                self.logger.info(f"Control Service: Leave message sent to neighbour {neighbour}")
+                                self.logger.debug(f"Message sent: {msg}")
+
             self.tree_lock.release()
-            
-            self.logger.debug(f"Control Service: Client {client} was removed from tree")
-        
-            for neighbour in self.neighbours:
-                if neighbour != address[0]:
-                    self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                    self.logger.info(f"Control Service: Leave message sent to neighbour {neighbour}")
-                    self.logger.debug(f"Message sent: {msg}")
 
 
     def control_service(self):
@@ -257,7 +249,6 @@ class Node:
     def pruning_service(self):
         wait = 20 # 20 segundos
         while True:
-            #print(self.last_contacts)
             timestamp = float(datetime.now().timestamp())
             to_remove = list()
 
@@ -301,8 +292,6 @@ class Node:
 
                 self.streams_lock.acquire()
 
-                #print(self.tree)
-
                 if content not in self.streams:
                     self.streams[content] = 0
                 else:
@@ -319,9 +308,8 @@ class Node:
                 self.tree_lock.release()
 
                 for step in steps:
-                    data_socket.sendto(data, (step.address, port))
-                    #print(step.address)
-                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step.address}")
+                    data_socket.sendto(data, (step.child, port))
+                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step.child}")
             
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:      
