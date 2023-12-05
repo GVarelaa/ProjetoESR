@@ -59,7 +59,7 @@ class RP(Node):
     def insert_tree(self, msg, neighbour, port):
         client = msg.hops[0]
         content = msg.contents[0]
-        seq_num = msg.seqnum
+        seqnum = msg.seqnum
         msg.response = 1
         msg.port = port
 
@@ -69,20 +69,17 @@ class RP(Node):
             self.tree[content] = dict()
 
         if client not in self.tree[content]:
-            self.tree[content][client] = NodeInfo(neighbour, seq_num)
+            self.tree[content][client] = NodeInfo(neighbour, seqnum)
             self.logger.debug(f"Control Service: Added client {client} to tree")
             
             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         else:
-            if self.tree[content][client].child_seqnum < seq_num:
-                self.tree[content][client] = NodeInfo(neighbour, seq_num)
+            child_seqnum = self.tree[content][client].child_seqnum
+            if child_seqnum is None or child_seqnum < seqnum:
+                self.tree[content][client] = NodeInfo(neighbour, seqnum)
                 self.logger.debug(f"Control Service: Updated client {client} in tree")
 
-                self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-            
-            else:
-                msg.nack = 1
                 self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
         self.tree_lock.release()

@@ -145,6 +145,12 @@ class Node:
 
                 self.tree_lock.release()
 
+                for neighbour in neighbours:
+                    if neighbour != address[0]:
+                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+                        self.logger.debug(f"Control Service: NACK sent to {neighbour}")
+
+
             elif msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
