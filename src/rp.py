@@ -63,7 +63,7 @@ class RP(Node):
         msg.response = 1
         msg.port = port
 
-        self.tree_lock.acquire()
+        self.lock.acquire()
 
         if content not in self.tree:
             self.tree[content] = dict()
@@ -82,7 +82,7 @@ class RP(Node):
 
                 self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
-        self.tree_lock.release()
+        self.lock.release()
 
 
     def get_port(self, content):
@@ -101,6 +101,8 @@ class RP(Node):
     def control_worker(self, address, msg):
         print(msg)
         print(address[0])
+
+        print(self.tree)
         # Se tem ciclos
         if address[0] in msg.hops:
             return
@@ -130,15 +132,16 @@ class RP(Node):
                 client = msg.hops[0]
                 content = msg.contents[0]
                 
-                self.tree_lock.acquire()
+                self.lock.acquire()
                 
                 try:
-                    self.tree[content].pop(client)
-                    self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
+                    if self.tree[content][client].child == address[0]:
+                        self.tree[content].pop(client)
+                        self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
                 except:
                     print("FUCK EXCEÇOES")
 
-                self.tree_lock.release()
+                self.lock.release()
 
             elif msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
@@ -177,8 +180,7 @@ class RP(Node):
 
             content = msg.contents[0]
 
-            self.tree_lock.acquire()
-            self.streams_lock.acquire()
+            self.lock.acquire()
 
             print(self.tree)
             print(msg.hops[0])
@@ -192,6 +194,7 @@ class RP(Node):
                 
                 for client in to_remove:
                     self.tree[content].pop(client)
+                    self.logger.debug(f"Control Service: Client {client} was removed from tree")
                 
                 print(self.tree)
                     
@@ -208,10 +211,8 @@ class RP(Node):
                             info.status = False
                     self.servers_lock.release()
 
-            self.streams_lock.release()
-            self.tree_lock.release()
+            self.lock.release()
             
-            self.logger.debug(f"Control Service: Client {client} was removed from tree")
 
 
     def tracking_service(self):
@@ -247,7 +248,7 @@ class RP(Node):
                     self.logger.info(f"Tracking Service: Timeout occurred for {server}")
 
             # Update do servidor se necessário
-            self.streams_lock.acquire()
+            self.lock.acquire()
 
             for stream in self.streams:
                 best_server = None
@@ -277,7 +278,7 @@ class RP(Node):
                     self.servers[streaming_server].status = False
                     self.servers[best_server[0]].status = True
             
-            self.streams_lock.release()
+            self.lock.release()
 
             time.sleep(wait)
 

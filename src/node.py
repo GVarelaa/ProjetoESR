@@ -19,12 +19,11 @@ class Node:
                 self.nodes = json.load(f)
 
         self.neighbours = list()
-    
-        self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
-        self.streams_lock = threading.Lock()
 
+
+        self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
         self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
-        self.tree_lock = threading.Lock()
+        self.lock = threading.Lock()
 
         self.last_contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
         self.last_contacts_lock = threading.Lock()
@@ -87,24 +86,27 @@ class Node:
     def insert_tree(self, msg, neighbour):
         client = msg.hops[0]
         content = msg.contents[0]
-        seq_num = msg.seqnum
+        seqnum = msg.seqnum
 
-        self.tree_lock.acquire()
+        self.lock.acquire()
 
         if content not in self.tree:
             self.tree[content] = dict()
 
-        self.tree[content][client] = NodeInfo(neighbour, seq_num)
+        self.tree[content][client] = NodeInfo(neighbour, seqnum)
 
-        self.logger.debug(f"Control Service: Added client {client} to tree")
+        self.logger.info(f"Control Service: Added client {client} to tree")
 
-        self.tree_lock.release()
+        self.lock.release()
 
 
     @abstractmethod
     def control_worker(self, address, msg):
         print(msg)
         print(address[0])
+        
+        print(self.tree)
+
         # Se tem ciclos
         if address[0] in msg.hops:
             return
@@ -134,7 +136,7 @@ class Node:
                 client = msg.hops[0]
                 content = msg.contents[0]
                 
-                self.tree_lock.acquire()
+                self.lock.acquire()
                 
                 try:
                     self.tree[content].pop(client)
@@ -143,9 +145,9 @@ class Node:
                 except:
                     print("FUCK EXCEÇOES")
 
-                self.tree_lock.release()
+                self.lock.release()
 
-                for neighbour in neighbours:
+                for neighbour in self.neighbours:
                     if neighbour != address[0]:
                         self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
                         self.logger.debug(f"Control Service: NACK sent to {neighbour}")
@@ -157,7 +159,8 @@ class Node:
 
                 self.insert_tree(msg, address[0])
 
-                if not msg.contents[0] in self.streams: # Se o nodo atual nao estiver a streamar o content pedido então faz flood
+                content = msg.contents[0]
+                if not content in self.streams or (content in self.streams and len(self.tree[content].keys()) == 1 and msg.hops[0] in self.tree[content].keys()): # Se o nodo atual nao estiver a streamar o content pedido então faz flood
                     for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
                         if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
@@ -179,7 +182,7 @@ class Node:
                 client = msg.hops[0]
                 content = msg.contents[0]
 
-                self.tree_lock.acquire()
+                self.lock.acquire()
 
                 parent_seqnum = self.tree[content][client].parent_seqnum
                 if parent_seqnum is None or parent_seqnum < seqnum:
@@ -198,7 +201,7 @@ class Node:
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
                             self.logger.debug(f"Control Service: NACK sent to {neighbour}")
 
-                self.tree_lock.release()
+                self.lock.release()
                 
                 threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
 
@@ -209,7 +212,7 @@ class Node:
 
             content = msg.contents[0]
 
-            self.tree_lock.acquire()
+            self.lock.acquire()
 
             if content in self.tree:
                 client = msg.hops[0]
@@ -218,23 +221,18 @@ class Node:
                     next_step = self.tree[content].pop(client)
                     
                     if len(list(self.tree[content].keys())) == 0:
-                        self.streams_lock.acquire()
                         
                         try:
                             self.streams.pop(content)
                             self.logger.debug(f"Control Service: Client {client} was removed from tree")
-                        
+
+                            self.control_socket.sendto(msg.serialize(), (next_step.parent, 7777))
+                            self.logger.info(f"Control Service: Leave message sent to neighbour {next_step.parent}")
+                            self.logger.debug(f"Message sent: {msg}")                        
                         except:
                             print("FUCK EXCEÇOES")
 
-                        self.streams_lock.release()
-
-                        
-                        self.control_socket.sendto(msg.serialize(), (next_step.parent, 7777))
-                        self.logger.info(f"Control Service: Leave message sent to neighbour {next_step.parent}")
-                        self.logger.debug(f"Message sent: {msg}")
-
-            self.tree_lock.release()
+            self.lock.release()
 
 
     def control_service(self):
@@ -265,7 +263,7 @@ class Node:
 
             self.last_contacts_lock.release()
 
-            self.tree_lock.acquire()
+            self.lock.acquire()
 
             for client in to_remove:
                 for content, clients in self.tree.items():
@@ -275,11 +273,9 @@ class Node:
                         self.logger.info(f"Pruning Service: Client {client} was removed from tree")
 
                         if len(list(self.tree[content].keys())) == 0:
-                            self.streams_lock.acquire()
                             self.streams.pop(content)
-                            self.streams_lock.release()
             
-            self.tree_lock.release()
+            self.lock.release()
 
             time.sleep(wait)
 
@@ -295,16 +291,12 @@ class Node:
             while True:
                 data, _ = data_socket.recvfrom(20480)
 
-                self.streams_lock.acquire()
+                self.lock.acquire()
 
                 if content not in self.streams:
                     self.streams[content] = 0
                 else:
                     self.streams[content] += 1
-                    
-                self.streams_lock.release()
-
-                self.tree_lock.acquire()
 
                 steps = set()
                 clients = self.tree[content]
@@ -312,7 +304,7 @@ class Node:
                 for step in clients.values():
                     steps.add(step)
                     
-                self.tree_lock.release()
+                self.lock.release()
 
                 for step in steps:
                     data_socket.sendto(data, (step.child, port))
@@ -321,7 +313,7 @@ class Node:
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:      
                 #data_socket.close()
-                print("mudar")    
+                print("mudar") 
 
         finally:
             data_socket.close()

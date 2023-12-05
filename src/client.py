@@ -41,13 +41,14 @@ class Client:
         self.setup() # Request neighbours
 
         threading.Thread(target=self.control_service, args=()).start()
-        #threading.Thread(target=self.polling_service, args=()).start()
+        threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = random.randint(1,100)
         self.request_sent = -1
         self.teardown_acked = 0
         self.frame_nr = 0
+        self.seqnum = 0
         self.play_movie()
 
 
@@ -102,8 +103,10 @@ class Client:
 
     def play_movie(self):
         """Play button handler."""
-        msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), contents=[self.videofile])
+        msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), seqnum=self.seqnum, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+
+        self.seqnum += 1
 
         self.logger.debug(f"Message sent: {msg}")
     
@@ -226,17 +229,19 @@ class Client:
 
     def polling_service(self):
         try:
-            wait = 5 # MUDAR PARA 0.5S !!!!!!!!!!!!!!!!
+            wait = 0.5 # MUDAR PARA 0.5S !!!!!!!!!!!!!!!!
             
             while True:
-                msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), contents=[self.videofile])
+                time.sleep(wait)
+
+                msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), seqnum=self.seqnum, contents=[self.videofile])
 
                 self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
                 self.logger.info(f"Polling Service: Polling message sent to neighbour {self.neighbour}")
                 self.logger.debug(f"Message sent: {msg}")
-                
-                time.sleep(wait)
+
+                self.seqnum += 1
         
         finally:
             self.control_socket.close()

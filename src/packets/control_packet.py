@@ -58,7 +58,7 @@ class ControlPacket:
         byte_array += self.nack.to_bytes(1, 'big')
 
         # Sequence Number - 1 byte
-        byte_array += self.seqnum.to_bytes(1, 'big')
+        byte_array += self.seqnum.to_bytes(4, 'big')
 
         # HasPort - 1 byte
         if self.port is not None:
@@ -136,7 +136,7 @@ class ControlPacket:
         msg_type = int.from_bytes(byte_array.read(1), byteorder='big')
         response = int.from_bytes(byte_array.read(1), byteorder='big')
         nack = int.from_bytes(byte_array.read(1), byteorder='big')
-        seqnum = int.from_bytes(byte_array.read(1), byteorder='big')
+        seqnum = int.from_bytes(byte_array.read(4), byteorder='big')
         has_port = int.from_bytes(byte_array.read(1), byteorder='big')
         has_number = int.from_bytes(byte_array.read(1), byteorder='big')
         latency = struct.unpack('>d', byte_array.read(8))[0]
