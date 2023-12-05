@@ -19,13 +19,13 @@ CACHE_FILE_EXT = ".jpg"
 class Client:
     def __init__(self, master, bootstrapper, videofile, debug_mode=False):
         self.master = master
+        self.master.protocol("WM_DELETE_WINDOW", self.exit_client)
         self.videofile = videofile
         self.neighbour = None
 
         address = bootstrapper.split(":")
         self.bootstrapper = (address[0], int(address[1]))
 
-        self.master.protocol("WM_DELETE_WINDOW", self.handler)
         self.create_widgets()
 
         self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -39,6 +39,8 @@ class Client:
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
         self.setup() # Request neighbours
+
+        self.stop_event = threading.Event()
 
         threading.Thread(target=self.control_service, args=()).start()
         threading.Thread(target=self.polling_service, args=()).start()
@@ -113,24 +115,25 @@ class Client:
 
     def stop_movie(self):
         """Stop button handler."""
+        self.stop_event.set()
+
         self.frame_nr = 0
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
-        
+
 
     def exit_client(self):
         """Exit button handler."""
+        self.stop_event.set()
+
         self.frame_nr = 0
-        
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
         
         self.logger.debug(f"Message sent: {msg}")
 
+        os.remove(CACHE_FILE_NAME + str(self.session_id) + CACHE_FILE_EXT) # Delete the cache image from
         self.master.destroy() # Close the gui window
-        os.remove(CACHE_FILE_NAME + str(self.session_id) + CACHE_FILE_EXT) # Delete the cache image from 
-        
-        # FALTA FECHAR AQUI O CLIENTE E FECHAR SOCKET DE DATA
 
 
     def listen_rtp(self, port):		
@@ -160,11 +163,7 @@ class Client:
                         self.frame_nr = curr_frame_nr
                         self.update_movie(self.write_frame(rtp_packet.get_payload()))
             
-            except:
-                # Stop listening upon requesting PAUSE or TEARDOWN
-                if self.play_event.isSet(): 
-                    break
-                
+            except:                
                 data_socket.shutdown(socket.SHUT_RDWR)
                 data_socket.close()
                 break
@@ -187,30 +186,13 @@ class Client:
         self.label.image = photo
 
 
-    def handler(self):
-        """Handler on explicitly closing the GUI window."""
-        self.pause_movie()
-        if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
-            self.exit_client()
-        else: # When the user presses cancel, resume playing.
-            self.play_movie()
-
-
     def control_worker(self, address, msg):
         if msg.type == ControlPacket.PLAY and msg.response == 1:
             self.logger.info(f"Control Service: Confirmation message received from {address[0]}")
             self.logger.debug(f"Message received: {msg}")
 
             threading.Thread(target=self.listen_rtp, args=(msg.port,)).start()
-            self.play_event = threading.Event()
-            self.play_event.clear()
-    
-        elif msg.type == ControlPacket.MEASURE and msg.response == 0:
-            self.logger.info(f"Control Service: Measure request received from neighbour {address[0]}")
-            self.logger.debug(f"Message received: {msg}")
-
-            msg.response = 1
-            self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+            self.stop_event.clear()
 
         
     def control_service(self):
@@ -229,10 +211,13 @@ class Client:
 
     def polling_service(self):
         try:
-            wait = 0.5 # MUDAR PARA 0.5S !!!!!!!!!!!!!!!!
+            wait = 0.5
             
             while True:
                 time.sleep(wait)
+
+                if self.stop_event.is_set():
+                    continue
 
                 msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), seqnum=self.seqnum, contents=[self.videofile])
 
@@ -264,6 +249,7 @@ def main():
         app = Client(root, args.bootstrapper, args.videofile, debug_mode=debug_mode)
         app.master.title("Client")	
         root.mainloop()
+        exit()
         
     else:
         print("Error: Wrong arguments")

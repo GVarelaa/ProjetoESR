@@ -147,6 +147,10 @@ class RP(Node):
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
+                self.contacts_lock.acquire()
+                self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
+                self.contacts_lock.release()
+
                 port = self.get_port(msg.contents[0])
                 self.insert_tree(msg, address[0], port)
                 
@@ -214,7 +218,48 @@ class RP(Node):
             self.lock.release()
             
 
+    def pruning_service(self):
+        wait = 3
 
+        while True:
+            time.sleep(wait)
+
+            curr_time = float(datetime.now().timestamp())
+            to_remove = list()
+
+            self.contacts_lock.acquire()
+
+            for client, last_contact in self.contacts.items():
+                if curr_time - last_contact > 1:
+                    to_remove.append(client)
+
+            self.contacts_lock.release()
+
+            self.lock.acquire()
+
+            for client in to_remove:
+                for content, clients in self.tree.items():
+                    if client in clients:
+                        self.tree[content].pop(client)
+
+                        self.logger.info(f"Pruning Service: Client {client} was removed from tree")
+
+                        if len(list(self.tree[content].keys())) == 0:
+                            self.streams.pop(content)
+                            
+                            self.servers_lock.acquire()
+                            
+                            for server, info in self.servers.items():
+                                if info.status and content in info.contents:
+                                    self.control_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[content]).serialize(), (server, 7777))
+                                    self.logger.info(f"Control Service: Leave message sent to {server}")
+                                    info.status = False
+                            
+                            self.servers_lock.release()
+            
+            self.lock.release()
+    
+    
     def tracking_service(self):
         tracking_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         tracking_socket.bind(("", 5000))

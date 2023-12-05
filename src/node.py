@@ -25,8 +25,8 @@ class Node:
         self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
         self.lock = threading.Lock()
 
-        self.last_contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
-        self.last_contacts_lock = threading.Lock()
+        self.contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
+        self.contacts_lock = threading.Lock()
         
         self.ports = dict() # estrutura para saber as portas para cada conteudo
 
@@ -47,7 +47,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        #threading.Thread(target=self.pruning_service, args=()).start()
+        threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         
 
@@ -152,10 +152,13 @@ class Node:
                         self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
                         self.logger.debug(f"Control Service: NACK sent to {neighbour}")
 
-
             elif msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
+
+                self.contacts_lock.acquire()
+                self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
+                self.contacts_lock.release()
 
                 self.insert_tree(msg, address[0])
 
@@ -250,18 +253,21 @@ class Node:
 
     
     def pruning_service(self):
-        wait = 20 # 20 segundos
+        wait = 3
+
         while True:
-            timestamp = float(datetime.now().timestamp())
+            time.sleep(wait)
+
+            curr_time = float(datetime.now().timestamp())
             to_remove = list()
 
-            self.last_contacts_lock.acquire()
+            self.contacts_lock.acquire()
 
-            for client, last_contact in self.last_contacts.items():
-                if timestamp - last_contact > 10: # TEMOS DE MUDAR PARA 1 !!!!!!!!!!!!!!!!!!!!!!!!!
+            for client, last_contact in self.contacts.items():
+                if curr_time - last_contact > 1:
                     to_remove.append(client)
 
-            self.last_contacts_lock.release()
+            self.contacts_lock.release()
 
             self.lock.acquire()
 
@@ -276,8 +282,6 @@ class Node:
                             self.streams.pop(content)
             
             self.lock.release()
-
-            time.sleep(wait)
 
 
     def listen_rtp(self, port, content):

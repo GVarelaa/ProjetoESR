@@ -90,10 +90,11 @@ class Server:
             self.videostreams[filename].seek_to_frame(frame_number)
         
         self.logger.info(f"Streaming Service: Sending RTP Packets to {addr}")
+
         while True:
             self.events[filename].wait(0.05)
             
-            # Stop sending if request is PAUSE or TEARDOWN
+            # Stop sending if request is LEAVE
             if self.events[filename].is_set():
                 break
                 
