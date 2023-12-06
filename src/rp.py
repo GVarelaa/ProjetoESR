@@ -128,17 +128,16 @@ class RP(Node):
         
         elif msg.type == ControlPacket.PLAY:
             if msg.nack == 1:
-                client = msg.hops[0]
                 content = msg.contents[0]
                 
                 self.lock.acquire()
                 
-                try:
-                    if self.tree[content][client].child == address[0]:
-                        self.tree[content].pop(client)
-                        self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
-                except:
-                    print("FUCK EXCEÇOES")
+                self.tree[content]["clients"].remove(address[0])
+
+                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+
+                if len(self.tree[content]["clients"]) == 0:
+                    self.tree.pop(content)
 
                 self.lock.release()
 
@@ -146,16 +145,29 @@ class RP(Node):
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
-                self.contacts_lock.acquire()
-                self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
-                self.contacts_lock.release()
+                #self.contacts_lock.acquire()
+                #self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
+                #self.contacts_lock.release()
+
+                self.lock.acquire()
 
                 port = self.get_port(msg.contents[0])
-                self.insert_tree(msg, address[0], port)
-              
                 content = msg.contents[0]
-                if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
+
+                if content not in self.tree:
+                    self.tree[content] = dict()
+                    self.tree[content]["frame"] = 0
+                    self.tree[content]["clients"] = set()
+                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    msg.response = 1
+                    msg.port = port
+                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+
                     self.servers_lock.acquire()
+
                     best_server = None
                     for server, value in self.servers.items():
                         if content in value.contents:
@@ -164,59 +176,62 @@ class RP(Node):
                                     best_server = (server, value.metric)
                             else:
                                 best_server = (server, value.metric)
+
                     self.servers_lock.release()
-                    
-                    self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
 
-                    self.servers[best_server[0]].status = True # Verificar dps
+                    if best_server is not None: #  PROTEGER PRO CASO EM QUE NAO TEM O CONTEUDO
+                        self.control_socket.sendto(ControlPacket(ControlPacket.PLAY, port=port, contents=[content]).serialize(), (best_server[0], 7777)) # Proteger para casos em que ainda nao tem best server
 
-                    self.logger.info(f"Control Service: Streaming request sent to server {best_server[0]}")
-                    self.logger.debug(f"Message sent: {msg}")
+                        self.servers[best_server[0]].status = True # Verificar dps
 
-                    # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
-                    threading.Thread(target=self.listen_rtp, args=(port, content)).start()
+                        self.logger.info(f"Control Service: Streaming request sent to server {best_server[0]}")
+                        self.logger.debug(f"Message sent: {msg}")
 
+                        self.lock.release()
 
-            print("acabei")
-            print(self.tree)
-            print("-----------")
+                        # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
+                        threading.Thread(target=self.listen_rtp, args=(port, content)).start()
 
+                else:
+                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    msg.response = 1
+                    msg.port = port
+                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+
+                    self.lock.release()
         
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
+        
+            
+            self.lock.acquire()
 
             content = msg.contents[0]
 
-            self.lock.acquire()
+            self.tree[content]["clients"].remove(address[0])
 
-            if content in self.tree:
-                to_remove = list()
+            self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
 
-                for client, next_step in self.tree[content].items():
-                    if next_step.child == address[0]:
-                        to_remove.append(client)
-                
-                for client in to_remove:
-                    self.tree[content].pop(client)
-                    self.logger.debug(f"Control Service: Client {client} was removed from tree")
-                
-                print(self.tree)
-                    
-                if len(list(self.tree[content].keys())) == 0:
-                    self.streams.pop(content)
+            if len(self.tree[content]["clients"]) == 0:
+                self.tree.pop(content)
 
-                    print(self.streams)
-                    
-                    self.servers_lock.acquire()
-                    for server, info in self.servers.items():
-                        if info.status and content in info.contents:
-                            self.control_socket.sendto(msg.serialize(), (server, 7777))
-                            self.logger.info(f"Control Service: Leave message sent to {server}")
-                            info.status = False
-                    self.servers_lock.release()
+                self.servers_lock.acquire()
+                for server, info in self.servers.items():
+                    if info.status and content in info.contents:
+                        self.control_socket.sendto(msg.serialize(), (server, 7777))
+                        self.logger.info(f"Control Service: Leave message sent to {server}")
+                        info.status = False
+                self.servers_lock.release()
 
             self.lock.release()
+        
+        print("acabei")
+        print(self.tree)
+        print("-----------")
+
             
 
     def pruning_service(self):
@@ -296,7 +311,7 @@ class RP(Node):
             # Update do servidor se necessário
             self.lock.acquire()
 
-            for stream in self.streams:
+            for stream in self.tree:
                 best_server = None
                 streaming_server = None
 
@@ -317,7 +332,7 @@ class RP(Node):
                 if streaming_server is not None and best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
 
-                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.streams[stream], contents=[stream]).serialize(), (best_server[0], 7777))
+                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.tree[stream]["frame"], contents=[stream]).serialize(), (best_server[0], 7777))
 
                     self.servers[streaming_server].status = False
                     self.servers[best_server[0]].status = True

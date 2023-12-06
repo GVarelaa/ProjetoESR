@@ -20,7 +20,6 @@ class Node:
 
         self.neighbours = list()
 
-
         self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
         self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
         self.lock = threading.Lock()
@@ -105,9 +104,8 @@ class Node:
         # Se tem ciclos
         print("-------------------")
         print("recebi")
+        print(address[0])
         print(self.tree)
-        if address[0] in msg.hops:
-            return
         
         if msg.response == 0:
             msg.hops.append(address[0])
@@ -131,123 +129,110 @@ class Node:
 
         elif msg.type == ControlPacket.PLAY:
             if msg.nack == 1:
-                client = msg.hops[0]
                 content = msg.contents[0]
                 
                 self.lock.acquire()
                 
-                try:
-                    self.tree[content].pop(client)
-                    self.logger.info(f"Control Service: Client {client} removed from tree due to NACK")
-                
-                except:
-                    print("FUCK EXCEÇOES")
+                self.tree[content]["clients"].remove(address[0])
+
+                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+
+                if len(self.tree[content]["clients"]) == 0:
+                    self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
+
+                    self.logger.info(f"Control Service: NACK sent to {self.tree[content]['parent']}")
+
+                    self.tree.pop(content)
 
                 self.lock.release()
-
-                for neighbour in self.neighbours:
-                    if neighbour != address[0]:
-                        self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                        self.logger.debug(f"Control Service: NACK sent to {neighbour}")
 
             elif msg.response == 0:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
-                self.contacts_lock.acquire()
-                self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
-                self.contacts_lock.release()
+                #self.contacts_lock.acquire()
+                #self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
+                #self.contacts_lock.release()   
 
-                self.insert_tree(msg, address[0])
-
-                print(self.tree)
-
+                self.lock.acquire()
+                
                 content = msg.contents[0]
-                if not content in self.streams or (content in self.streams and len(self.tree[content].keys()) == 1 and msg.hops[0] in self.tree[content].keys()): # Se o nodo atual nao estiver a streamar o content pedido então faz flood
-                    print("fasdfasdfasdfasdfsdfads")
+                if content not in self.tree:
+                    self.tree[content] = dict()
+                    self.tree[content]["frame"] = 0
+                    self.tree[content]["clients"] = set()
+                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
                     for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
                         if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+
                             self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
                             self.logger.debug(f"Message sent: {msg}")
+
                 else:
-                    print("FDPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP")
-                    msg.response = 1
-                    msg.port = self.ports[msg.contents[0]]
-
-                    self.lock.acquire()
-
-                    for client, value in self.tree[content].items():
-                        if value.parent is not None:
-                            self.tree[content][msg.hops[0]].parent = value.parent
-                            self.tree[content][msg.hops[0]].parent_seqnum = msg.seqnum 
-
-                    self.lock.release()
+                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
                     
-                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
-                    self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
-                    self.logger.debug(f"Message sent: {msg}")
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    response = ControlPacket(ControlPacket.PLAY, response=1, contents=msg.contents, hops=msg.hops, port=self.ports[content])
+                    self.control_socket.sendto(response.serialize(), (address[0], 7777))
+
+                self.lock.release()
+
 
             elif msg.response == 1:
-                self.ports[msg.contents[0]] = msg.port # guardar porta
-                # ABRIR O SOCKET COM A PORTA PASSADA PRA RECEBER A STREAM E CRIAR THREAD PRA LISTEN
-                # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
-                seqnum = msg.seqnum
-                client = msg.hops[0]
+                self.logger.info(f"Control Service: Subscription confirmation received from neighbour {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
+                
                 content = msg.contents[0]
 
                 self.lock.acquire()
-
-                parent_seqnum = self.tree[content][client].parent_seqnum
-                if parent_seqnum is None or parent_seqnum < seqnum:
-                    self.tree[content][client].parent = address[0]
-                    self.tree[content][client].parent_seqnum = seqnum
-
-                    msg.response = 1
-                    self.control_socket.sendto(msg.serialize(), (self.tree[content][client].child, 7777))
-                    self.logger.info(f"Control Service: Port message sent to neighbour {self.tree[content][client].child}")
-                    self.logger.debug(f"Message sent: {msg}")
-
-                    for neighbour in self.neighbours:
-                        if neighbour != address[0] and neighbour != client and neighbour not in msg.hops:
-                            msg.nack = 1
-                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
-                            self.logger.debug(f"Control Service: NACK sent to {neighbour}")
-
-                self.lock.release()
                 
-                if content not in self.streams:
+                if "parent" not in self.tree[content]:
+                    self.tree[content]["parent"] = address[0]
+
+                    for client in self.tree[content]["clients"]:
+                        self.control_socket.sendto(msg.serialize(), (client, 7777))
+                        self.logger.info(f"Control Service: Subscription confirmation sent to neighbour {client}")
+
+                    self.lock.release()
+
+                    self.ports[msg.contents[0]] = msg.port
                     threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
+
+                else:
+                    nack = ControlPacket(ControlPacket.PLAY, nack=1, contents=msg.contents)
+                    self.control_socket.sendto(nack.serialize(), (address[0], 7777))
+                    
+                    self.logger.info(f"Control Service: NACK sent to {address[0]}")
+                    
+                    self.lock.release()
+
         
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
 
-            content = msg.contents[0]
-
             self.lock.acquire()
 
+            content = msg.contents[0]
             if content in self.tree:
-                client = msg.hops[0]
+                self.tree[content]["clients"].remove(address[0])
 
-                if client in self.tree[content]:
-                    next_step = self.tree[content].pop(client)
-                    self.logger.info(f"Control Service: Client {client} was removed from tree")
-                    
-                    if len(list(self.tree[content].keys())) == 0:
-                        
-                        if content in self.streams:
-                            self.streams.pop(content)
-                            self.logger.info(f"Control Service: Content {content} was removed from tree")
+                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to LEAVE")
 
-                            
-                            self.control_socket.sendto(msg.serialize(), (next_step.parent, 7777))
-                            self.logger.info(f"Control Service: Leave message sent to neighbour {next_step.parent}")
-                            self.logger.debug(f"Message sent: {msg}")                        
+                if len(self.tree[content]["clients"]) == 0:
+                    self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
 
+                    self.logger.debug(f"Control Service: Leave message sent to {self.tree[content]['parent']}")
+
+                    self.tree.pop(content)
 
             self.lock.release()
-    
+            
         print("acabei")
         print(self.tree)
         print("-----------")
@@ -311,23 +296,16 @@ class Node:
                 data, _ = data_socket.recvfrom(20480)
 
                 self.lock.acquire()
+    	        
+                self.tree[content]["frame"] += 1
 
-                if content not in self.streams:
-                    self.streams[content] = 0
-                else:
-                    self.streams[content] += 1
-
-                steps = set()
-                clients = self.tree[content]
-
-                for step in clients.values():
-                    steps.add(step)
+                steps = self.tree[content]["clients"]
                     
                 self.lock.release()
 
                 for step in steps:
-                    data_socket.sendto(data, (step.child, port))
-                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step.child}")
+                    data_socket.sendto(data, (step, port))
+                    self.logger.debug(f"Streaming Service: RTP Packet sent to {step}")
             
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:      
