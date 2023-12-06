@@ -43,7 +43,7 @@ class Client:
         self.stop_event = threading.Event()
 
         threading.Thread(target=self.control_service, args=()).start()
-        #threading.Thread(target=self.polling_service, args=()).start()
+        threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = random.randint(1,100)
@@ -213,15 +213,13 @@ class Client:
 
     def polling_service(self):
         try:
-            wait = 2
+            wait = 4
             
             while True:
                 time.sleep(wait)
 
-                if self.stop_event.is_set():
-                    print("foudaseeeeeeeeeeeee")
-                else:
-                    msg = ControlPacket(ControlPacket.PLAY, seqnum=self.seqnum, contents=[self.videofile])
+                if not self.stop_event.is_set():
+                    msg = ControlPacket(ControlPacket.POLLING, timestamp=float(datetime.now().timestamp()), contents=[self.videofile])
 
                     self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 

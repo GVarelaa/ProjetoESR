@@ -193,7 +193,7 @@ class RP(Node):
                         threading.Thread(target=self.listen_rtp, args=(port, content)).start()
 
                 else:
-                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+                    self.tree[content]["clients"].add(address[0])
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
                     msg.response = 1
@@ -228,6 +228,32 @@ class RP(Node):
 
             self.lock.release()
         
+        elif msg.type == ControlPacket.POLLING:
+            if msg.nack == 1:                
+                content = msg.contents[0]
+                
+                self.lock.acquire()
+                
+                self.tree[content]["clients"].remove(address[0])
+                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+
+                if len(self.tree[content]["clients"]) == 0:
+                    self.tree.pop(content)
+
+                self.lock.release()
+                
+            elif msg.response == 0:
+                self.lock.acquire()
+
+                self.tree[msg.contents[0]]["clients"].add(address[0]) 
+                self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                self.lock.release()
+
+                msg.response = 1
+                msg.port = self.ports[msg.contents[0]]
+                self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+
         print("acabei")
         print(self.tree)
         print("-----------")

@@ -1,4 +1,5 @@
 import io
+import struct
 
 class ControlPacket:
     NEIGHBOURS = 0
@@ -6,8 +7,9 @@ class ControlPacket:
     PLAY = 2
     LEAVE = 3
     MEASURE = 4
+    POLLING = 5
 
-    def __init__(self, msg_type, response=0, nack=0, seqnum=0, port=None, frame_number=None, hops=list(), neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, nack=0, seqnum=0, port=None, frame_number=None, timestamp=0, hops=list(), neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.response = response # Alterar para bit
@@ -17,6 +19,7 @@ class ControlPacket:
         self.seqnum = seqnum
         self.port = port
         self.frame_number = frame_number
+        self.timestamp = timestamp
         # Data
         self.hops = hops
         self.servers = servers
@@ -25,11 +28,11 @@ class ControlPacket:
 
     
     def __str__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} |Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def __repr__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def serialize_ip(self, ip):
@@ -74,6 +77,9 @@ class ControlPacket:
         # Frame Number - 4 bytes
         if self.has_frame == 1:
             byte_array += self.frame_number.to_bytes(4, 'big')
+
+        # Timestamp - 8 bytes
+        byte_array += struct.pack('>d', self.timestamp)
 
         # Number of hops - 1 byte
         byte_array += len(self.hops).to_bytes(1, 'big')
@@ -143,6 +149,8 @@ class ControlPacket:
         if has_number == 1:
             frame_number = int.from_bytes(byte_array.read(4), byteorder='big')
 
+        timestamp = struct.unpack('>d', byte_array.read(8))[0]
+
         nr_hops = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_servers = int.from_bytes(byte_array.read(1), byteorder='big')
         nr_neighbours = int.from_bytes(byte_array.read(1), byteorder='big')
@@ -166,5 +174,5 @@ class ControlPacket:
             string_len = int.from_bytes(byte_array.read(1), byteorder='big')
             contents.append(byte_array.read(string_len).decode('utf-8'))
         
-        return ControlPacket(msg_type, response=response, nack=nack, seqnum=seqnum, port=port, frame_number=frame_number , hops=hops, servers=servers, neighbours=neighbours, contents=contents)
+        return ControlPacket(msg_type, response=response, nack=nack, seqnum=seqnum, port=port, frame_number=frame_number, timestamp=timestamp, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
     

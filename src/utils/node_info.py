@@ -1,12 +1,10 @@
 class NodeInfo:
-    def __init__(self, child, child_seqnum, parent=None, parent_seqnum=None):
-        self.child = child
-        self.child_seqnum = child_seqnum
-        self.parent = parent
-        self.parent_seqnum = parent_seqnum
+    def __init__(self, nextstep, seqnum):
+        self.nextstep = nextstep
+        self.seqnum = seqnum
     
     def __str__(self):
-        return f"Child : {self.child} | Child Sequence Number : {self.child_seqnum} | Parent : {self.parent} | Parent Sequence Number : {self.parent_seqnum}"
+        return f"Next Step : {self.nextstep} | Sequence Number : {self.seqnum}"
 
     def __repr__(self):
-        return f"Child : {self.child} | Child Sequence Number : {self.child_seqnum} | Parent : {self.parent} | Parent Sequence Number : {self.parent_seqnum}"
+        return f"Next Step : {self.nextstep} | Sequence Number : {self.seqnum}"

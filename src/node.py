@@ -21,6 +21,8 @@ class Node:
         self.neighbours = list()
 
         self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
+
+
         self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
         self.lock = threading.Lock()
 
@@ -107,6 +109,7 @@ class Node:
         print(address[0])
         print(self.tree)
         
+
         if msg.response == 0:
             msg.hops.append(address[0])
         
@@ -161,7 +164,7 @@ class Node:
                     self.tree[content] = dict()
                     self.tree[content]["frame"] = 0
                     self.tree[content]["clients"] = set()
-                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+                    self.tree[content]["clients"].add(address[0])
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -173,7 +176,7 @@ class Node:
                             self.logger.debug(f"Message sent: {msg}")
 
                 else:
-                    self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+                    self.tree[content]["clients"].add(address[0])
                     
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -233,6 +236,93 @@ class Node:
 
             self.lock.release()
             
+        elif msg.type == ControlPacket.POLLING:
+            self.logger.info(f"Control Service: Polling received from neighbour {address[0]}")
+            self.logger.debug(f"Message received: {msg}")
+
+            if msg.nack == 1:
+                content = msg.contents[0]
+                
+                self.lock.acquire()
+                
+                #if self.tree[content]["timestamp"] == msg.timestamp:
+                self.tree[content]["clients"].remove(address[0])
+
+                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+
+                if len(self.tree[content]["clients"]) == 0:
+                    self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
+
+                    self.logger.info(f"Control Service: NACK sent to {self.tree[content]['parent']}")
+
+                    self.tree.pop(content)
+
+                self.lock.release()
+
+            elif msg.response == 0:
+                self.lock.acquire()
+
+                content = msg.contents[0]
+                if content not in self.tree:
+                    self.tree[content] = dict()
+                    self.tree[content]["frame"] = 0
+                    self.tree[content]["clients"] = set()
+                    self.tree[content]["clients"].add(address[0])
+
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
+                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+
+                            self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")
+                            self.logger.debug(f"Message sent: {msg}")
+
+                elif content in self.tree and len(self.tree[content]["clients"]) == 1 and address[0] in self.tree[content]["clients"]:
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
+                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                            self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
+
+                            self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")
+                            self.logger.debug(f"Message sent: {msg}")
+
+                else:
+                    self.tree[content]["clients"].add(address[0])
+                    
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+
+                    msg.response = 1
+                    msg.port = self.ports[content]
+                    self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+
+                self.lock.release()
+
+            elif msg.response == 1:
+                content = msg.contents[0]
+
+                self.lock.acquire()
+                
+                if "timestamp" not in self.tree[content] or self.tree[content]["timestamp"] < msg.timestamp:
+                    self.tree[content]["parent"] = address[0]
+                    self.tree[content]["timestamp"] = msg.timestamp
+
+                    for client in self.tree[content]["clients"]:
+                        self.control_socket.sendto(msg.serialize(), (client, 7777))
+                        self.logger.info(f"Control Service: Subscription confirmation sent to neighbour {client}")
+
+                    self.lock.release()
+
+                else:
+                    nack = ControlPacket(ControlPacket.POLLING, nack=1, timestamp=msg.timestamp, contents=msg.contents)
+                    self.control_socket.sendto(nack.serialize(), (address[0], 7777))
+                    
+                    self.logger.info(f"Control Service: NACK sent to {address[0]}")
+                    
+                    self.lock.release()
+
+        
         print("acabei")
         print(self.tree)
         print("-----------")
@@ -296,10 +386,12 @@ class Node:
                 data, _ = data_socket.recvfrom(20480)
 
                 self.lock.acquire()
-    	        
-                self.tree[content]["frame"] += 1
 
-                steps = self.tree[content]["clients"]
+                steps = set()
+                if content in self.tree:
+                    self.tree[content]["frame"] += 1
+
+                    steps = self.tree[content]["clients"]
                     
                 self.lock.release()
 
