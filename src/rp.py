@@ -99,11 +99,10 @@ class RP(Node):
 
 
     def control_worker(self, address, msg):
-        print(msg)
-        print(address[0])
-
-        print(self.tree)
         # Se tem ciclos
+        print("-------------------")
+        print("recebi")
+        print(self.tree)
         if address[0] in msg.hops:
             return
         
@@ -153,7 +152,7 @@ class RP(Node):
 
                 port = self.get_port(msg.contents[0])
                 self.insert_tree(msg, address[0], port)
-                
+              
                 content = msg.contents[0]
                 if content not in self.streams: # Se não está a streamar então vai contactar o melhor servidor com aquele conteudo pra lhe pedir a stream
                     self.servers_lock.acquire()
@@ -177,6 +176,11 @@ class RP(Node):
                     # LANÇAMOS AQUI UMA THREAD PARA RECEBER A STREAM?
                     threading.Thread(target=self.listen_rtp, args=(port, content)).start()
 
+
+            print("acabei")
+            print(self.tree)
+            print("-----------")
+
         
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
@@ -185,9 +189,6 @@ class RP(Node):
             content = msg.contents[0]
 
             self.lock.acquire()
-
-            print(self.tree)
-            print(msg.hops[0])
 
             if content in self.tree:
                 to_remove = list()
@@ -267,13 +268,13 @@ class RP(Node):
         delay = 2
         tracking_socket.settimeout(delay)
 
-        wait = 6
+        wait = 1
         while True:
             for server in self.servers:
                 initial_timestamp = datetime.now()
                 tracking_socket.sendto(ControlPacket(ControlPacket.STATUS).serialize(), (server, 7777))
 
-                self.logger.info(f"Tracking Service: Monitorization messages sent to {server}")
+                #self.logger.info(f"Tracking Service: Monitorization messages sent to {server}")
 
                 try:
                     data, address = tracking_socket.recvfrom(1024)
@@ -283,14 +284,14 @@ class RP(Node):
                     self.servers[address[0]].update_metrics(True, delay, initial_timestamp=initial_timestamp, final_timestamp=datetime.now(), contents=msg.contents)
                     self.servers_lock.release()
 
-                    self.logger.info(f"Tracking Service: Metrics updated for {server}")
+                    #self.logger.info(f"Tracking Service: Metrics updated for {server}")
                 
                 except socket.timeout:
                     self.servers_lock.acquire()
                     self.servers[server].update_metrics(False, delay)
                     self.servers_lock.release()
 
-                    self.logger.info(f"Tracking Service: Timeout occurred for {server}")
+                    #self.logger.info(f"Tracking Service: Timeout occurred for {server}")
 
             # Update do servidor se necessário
             self.lock.acquire()
@@ -312,8 +313,6 @@ class RP(Node):
 
                         else:
                             best_server = (server, info.metric)
-                            
-                self.servers_lock.release()
                 
                 if streaming_server is not None and best_server != streaming_server:
                     tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
@@ -322,6 +321,8 @@ class RP(Node):
 
                     self.servers[streaming_server].status = False
                     self.servers[best_server[0]].status = True
+                
+                self.servers_lock.release()
             
             self.lock.release()
 

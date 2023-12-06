@@ -47,7 +47,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        threading.Thread(target=self.pruning_service, args=()).start()
+        #threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         
 
@@ -102,12 +102,10 @@ class Node:
 
     @abstractmethod
     def control_worker(self, address, msg):
-        print(msg)
-        print(address[0])
-        
-        print(self.tree)
-
         # Se tem ciclos
+        print("-------------------")
+        print("recebi")
+        print(self.tree)
         if address[0] in msg.hops:
             return
         
@@ -162,16 +160,29 @@ class Node:
 
                 self.insert_tree(msg, address[0])
 
+                print(self.tree)
+
                 content = msg.contents[0]
                 if not content in self.streams or (content in self.streams and len(self.tree[content].keys()) == 1 and msg.hops[0] in self.tree[content].keys()): # Se o nodo atual nao estiver a streamar o content pedido então faz flood
+                    print("fasdfasdfasdfasdfsdfads")
                     for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
                         if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
                             self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
                             self.logger.debug(f"Message sent: {msg}")
                 else:
+                    print("FDPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP")
                     msg.response = 1
                     msg.port = self.ports[msg.contents[0]]
+
+                    self.lock.acquire()
+
+                    for client, value in self.tree[content].items():
+                        if value.parent is not None:
+                            self.tree[content][msg.hops[0]].parent = value.parent
+                            self.tree[content][msg.hops[0]].parent_seqnum = msg.seqnum 
+
+                    self.lock.release()
                     
                     self.control_socket.sendto(msg.serialize(), (address[0], 7777))
                     self.logger.info(f"Control Service: Port message sent to neighbour {address[0]}")
@@ -200,14 +211,13 @@ class Node:
                     for neighbour in self.neighbours:
                         if neighbour != address[0] and neighbour != client and neighbour not in msg.hops:
                             msg.nack = 1
-                            print(msg)
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
                             self.logger.debug(f"Control Service: NACK sent to {neighbour}")
 
                 self.lock.release()
                 
-                threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
-
+                if content not in self.streams:
+                    threading.Thread(target=self.listen_rtp, args=(msg.port, msg.contents[0])).start()
         
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
@@ -222,20 +232,25 @@ class Node:
 
                 if client in self.tree[content]:
                     next_step = self.tree[content].pop(client)
+                    self.logger.info(f"Control Service: Client {client} was removed from tree")
                     
                     if len(list(self.tree[content].keys())) == 0:
                         
-                        try:
+                        if content in self.streams:
                             self.streams.pop(content)
-                            self.logger.debug(f"Control Service: Client {client} was removed from tree")
+                            self.logger.info(f"Control Service: Content {content} was removed from tree")
 
+                            
                             self.control_socket.sendto(msg.serialize(), (next_step.parent, 7777))
                             self.logger.info(f"Control Service: Leave message sent to neighbour {next_step.parent}")
                             self.logger.debug(f"Message sent: {msg}")                        
-                        except:
-                            print("FUCK EXCEÇOES")
+
 
             self.lock.release()
+    
+        print("acabei")
+        print(self.tree)
+        print("-----------")
 
 
     def control_service(self):

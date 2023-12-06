@@ -43,7 +43,7 @@ class Client:
         self.stop_event = threading.Event()
 
         threading.Thread(target=self.control_service, args=()).start()
-        threading.Thread(target=self.polling_service, args=()).start()
+        #threading.Thread(target=self.polling_service, args=()).start()
         
         self.rtsp_seq = 0
         self.session_id = random.randint(1,100)
@@ -105,7 +105,9 @@ class Client:
 
     def play_movie(self):
         """Play button handler."""
-        msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), seqnum=self.seqnum, contents=[self.videofile])
+        self.stop_event.clear()
+
+        msg = ControlPacket(ControlPacket.PLAY, seqnum=self.seqnum, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
         self.seqnum += 1
@@ -115,11 +117,12 @@ class Client:
 
     def stop_movie(self):
         """Stop button handler."""
-        self.stop_event.set()
-
         self.frame_nr = 0
+
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+
+        self.stop_event.set()
 
 
     def exit_client(self):
@@ -192,7 +195,6 @@ class Client:
             self.logger.debug(f"Message received: {msg}")
 
             threading.Thread(target=self.listen_rtp, args=(msg.port,)).start()
-            self.stop_event.clear()
 
         
     def control_service(self):
@@ -211,22 +213,22 @@ class Client:
 
     def polling_service(self):
         try:
-            wait = 0.5
+            wait = 2
             
             while True:
                 time.sleep(wait)
 
                 if self.stop_event.is_set():
-                    continue
+                    print("foudaseeeeeeeeeeeee")
+                else:
+                    msg = ControlPacket(ControlPacket.PLAY, seqnum=self.seqnum, contents=[self.videofile])
 
-                msg = ControlPacket(ControlPacket.PLAY, latency=float(datetime.now().timestamp()), seqnum=self.seqnum, contents=[self.videofile])
+                    self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
 
-                self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+                    self.logger.info(f"Polling Service: Polling message sent to neighbour {self.neighbour}")
+                    self.logger.debug(f"Message sent: {msg}")
 
-                self.logger.info(f"Polling Service: Polling message sent to neighbour {self.neighbour}")
-                self.logger.debug(f"Message sent: {msg}")
-
-                self.seqnum += 1
+                    self.seqnum += 1
         
         finally:
             self.control_socket.close()
