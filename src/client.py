@@ -32,9 +32,9 @@ class Client:
         self.control_socket.bind(("", 7777))
 
         if debug_mode:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
         else:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
@@ -80,6 +80,7 @@ class Client:
 
     def setup(self):
         self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+
         self.logger.info("Setup: Asked for neighbours")
 
         try:
@@ -108,7 +109,8 @@ class Client:
 
         msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
-
+        
+        self.logger.info(f"Subscription sent to {self.neighbour}")
         self.logger.debug(f"Message sent: {msg}")
     
 
@@ -118,6 +120,9 @@ class Client:
 
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
+
+        self.logger.info(f"Leave sent to {self.neighbour}")
+        self.logger.debug(f"Message sent: {msg}")
 
         self.stop_event.set()
 
@@ -130,6 +135,7 @@ class Client:
         msg = ControlPacket(ControlPacket.LEAVE, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
         
+        self.logger.info(f"Leave sent to {self.neighbour}")
         self.logger.debug(f"Message sent: {msg}")
 
         os.remove(CACHE_FILE_NAME + str(self.session_id) + CACHE_FILE_EXT) # Delete the cache image from
@@ -139,7 +145,7 @@ class Client:
     def listen_rtp(self, port):		
         """Listen for RTP packets."""
 
-        self.logger.info(f"Streaming Service: Receiving RTP packets")        
+        self.logger.info(f"Receiving RTP Packets")        
         
         try:
             data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -157,7 +163,7 @@ class Client:
                     rtp_packet.decode(data)
                     
                     curr_frame_nr = rtp_packet.get_seq_num()
-                    self.logger.debug(f"Streaming Service: RTP Packet {curr_frame_nr} received from {addr[0]}")
+                    self.logger.debug(f"RTP Packet {curr_frame_nr} received from {addr[0]}")
 
                     if curr_frame_nr > self.frame_nr: # Discard the late packet
                         self.frame_nr = curr_frame_nr

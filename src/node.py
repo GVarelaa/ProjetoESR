@@ -32,9 +32,9 @@ class Node:
         self.bootstrapper = (address[0], int(address[1]))
 
         if debug_mode:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
         else:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 
         self.logger = logging.getLogger()
         self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
@@ -82,11 +82,6 @@ class Node:
     @abstractmethod
     def control_worker(self, address, msg):
         # Se tem ciclos
-        print("-------------------")
-        print("recebi")
-        print(address[0])
-        print(self.tree)
-
         if msg.response == 0:
             msg.hops.append(address[0])
         
@@ -104,18 +99,21 @@ class Node:
             msg = ControlPacket(ControlPacket.NEIGHBOURS, response=1, servers=servers, neighbours=neighbours)
             self.control_socket.sendto(msg.serialize(), address)
             
-            self.logger.info(f"Control Service: Message sent to {address[0]}")
+            self.logger.info(f"Control Service: Neighbours sent to {address[0]}")
             self.logger.debug(f"Message: {msg}")
 
         elif msg.type == ControlPacket.PLAY:
             if msg.nack == 1:
+                self.logger.info(f"Control Service: NACK received from {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
+
                 content = msg.contents[0]
                 
                 self.lock.acquire()
                 
                 self.tree[content]["clients"].remove(address[0])
 
-                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+                self.logger.info(f"Control Service: {address[0]} removed from tree")
 
                 if len(self.tree[content]["clients"]) == 0:
                     self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
@@ -127,7 +125,7 @@ class Node:
                 self.lock.release()
 
             elif msg.response == 0:
-                self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
+                self.logger.info(f"Control Service: Subscription received from {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
                 self.lock.acquire()
@@ -141,13 +139,13 @@ class Node:
 
                     self.contacts[address[0]] = float(datetime.now().timestamp())
 
-                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added {address[0]} to tree")
 
                     for neighbour in self.neighbours: 
                         if neighbour != address[0]:
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
-                            self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
+                            self.logger.info(f"Control Service: Subscription sent to {neighbour}")
                             self.logger.debug(f"Message sent: {msg}")
 
                 else:
@@ -155,16 +153,20 @@ class Node:
 
                     self.contacts[address[0]] = float(datetime.now().timestamp())
                     
-                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added {address[0]} to tree")
 
                     response = ControlPacket(ControlPacket.PLAY, response=1, contents=msg.contents, hops=msg.hops, port=self.ports[content])
                     self.control_socket.sendto(response.serialize(), (address[0], 7777))
 
+                    self.logger.info(f"Control Service: Confirmation sent to {address[0]}")
+                    self.logger.debug(f"Message sent: {response}")
+
                 self.lock.release()
 
+                self.logger.info(f"Control Service: Confirmation sent to {address[0]}")
 
             elif msg.response == 1:
-                self.logger.info(f"Control Service: Subscription confirmation received from neighbour {address[0]}")
+                self.logger.info(f"Control Service: Confirmation received from {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
                 
                 content = msg.contents[0]
@@ -176,7 +178,9 @@ class Node:
 
                     for client in self.tree[content]["clients"]:
                         self.control_socket.sendto(msg.serialize(), (client, 7777))
-                        self.logger.info(f"Control Service: Subscription confirmation sent to neighbour {client}")
+
+                        self.logger.info(f"Control Service: Confirmation sent to {client}")
+                        self.logger.debug(f"Message sent: {msg}")
 
                     self.lock.release()
 
@@ -188,11 +192,12 @@ class Node:
                     self.control_socket.sendto(nack.serialize(), (address[0], 7777))
                     
                     self.logger.info(f"Control Service: NACK sent to {address[0]}")
+                    self.logger.debug(f"Message sent: {nack}")
                     
                     self.lock.release()
 
         elif msg.type == ControlPacket.LEAVE:
-            self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
+            self.logger.info(f"Control Service: Leave received from {address[0]}")
             self.logger.debug(f"Message received: {msg}")
 
             self.lock.acquire()
@@ -201,21 +206,19 @@ class Node:
             if content in self.tree:
                 self.tree[content]["clients"].remove(address[0])
 
-                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to LEAVE")
+                self.logger.info(f"Control Service: {address[0]} removed from tree")
 
                 if len(self.tree[content]["clients"]) == 0:
                     self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
 
-                    self.logger.debug(f"Control Service: Leave message sent to {self.tree[content]['parent']}")
+                    self.logger.info(f"Control Service: Leave sent to {self.tree[content]['parent']}")
+                    self.logger.debug(f"Message sent: {msg}")
 
                     self.tree.pop(content)
 
             self.lock.release()
             
         elif msg.type == ControlPacket.POLLING:
-            self.logger.info(f"Control Service: Polling received from neighbour {address[0]}")
-            self.logger.debug(f"Message received: {msg}")
-
             if msg.contents[0] in self.tree and "parent" in self.tree[msg.contents[0]]:
                 self.control_socket.sendto(ControlPacket(ControlPacket.POLLING, alive=1, contents=msg.contents).serialize(), (self.tree[msg.contents[0]]["parent"], 7777))
 
@@ -225,24 +228,31 @@ class Node:
                 self.lock.release()
 
             elif msg.nack == 1:
+                self.logger.info(f"Control Service: NACK received from {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
+                
                 content = msg.contents[0]
                 
                 self.lock.acquire()
                 
                 self.tree[content]["clients"].remove(address[0])
 
-                self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+                self.logger.info(f"Control Service: {address[0]} removed from tree")
 
                 if len(self.tree[content]["clients"]) == 0:
                     self.control_socket.sendto(msg.serialize(), (self.tree[content]["parent"], 7777))
 
                     self.logger.info(f"Control Service: NACK sent to {self.tree[content]['parent']}")
+                    self.logger.debug(f"Message sent: {msg}")
 
                     self.tree.pop(content)
 
                 self.lock.release()
 
             elif msg.response == 0:
+                self.logger.info(f"Control Service: Subscription received from {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
+
                 self.lock.acquire()
 
                 content = msg.contents[0]
@@ -254,25 +264,25 @@ class Node:
                     
                     self.contacts[address[0]] = float(datetime.now().timestamp())
 
-                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added {address[0]} to tree")
 
                     for neighbour in self.neighbours: 
                         if neighbour != address[0]: 
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
-                            self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")
+                            self.logger.info(f"Control Service: Subscription sent to {neighbour}")
                             self.logger.debug(f"Message sent: {msg}")
 
                 elif content in self.tree and len(self.tree[content]["clients"]) == 1 and address[0] in self.tree[content]["clients"]:
                     self.contacts[address[0]] = float(datetime.now().timestamp())
 
-                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added {address[0]} to tree")
 
                     for neighbour in self.neighbours:
                         if neighbour != address[0]: 
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
-                            self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")
+                            self.logger.info(f"Control Service: Subscription sent to {neighbour}")
                             self.logger.debug(f"Message sent: {msg}")
 
                 else:
@@ -280,15 +290,21 @@ class Node:
 
                     self.contacts[address[0]] = float(datetime.now().timestamp())
                     
-                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added {address[0]} to tree")
 
                     msg.response = 1
                     msg.port = self.ports[content]
                     self.control_socket.sendto(msg.serialize(), (address[0], 7777))
 
+                    self.logger.info(f"Control Service: Confirmation sent to {address[0]}")
+                    self.logger.debug(f"Message sent: {msg}")
+
                 self.lock.release()
 
             elif msg.response == 1:
+                self.logger.info(f"Control Service: Confirmation received from {address[0]}")
+                self.logger.debug(f"Message received: {msg}")
+
                 content = msg.contents[0]
 
                 self.lock.acquire()
@@ -299,19 +315,18 @@ class Node:
 
                     for client in self.tree[content]["clients"]:
                         self.control_socket.sendto(msg.serialize(), (client, 7777))
-                        self.logger.info(f"Control Service: Subscription confirmation sent to neighbour {client}")
+
+                        self.logger.info(f"Control Service: Confirmation sent to {client}")
+                        self.logger.debug(f"Message sent: {msg}")
 
                 else:
                     nack = ControlPacket(ControlPacket.POLLING, nack=1, timestamp=msg.timestamp, contents=msg.contents)
                     self.control_socket.sendto(nack.serialize(), (address[0], 7777))
                     
                     self.logger.info(f"Control Service: NACK sent to {address[0]}")
+                    self.logger.debug(f"Message sent: {nack}")
                     
                 self.lock.release()
-
-        print("acabei")
-        print(self.tree)
-        print("-----------")
 
 
     def control_service(self):
@@ -334,7 +349,6 @@ class Node:
 
         while True:
             time.sleep(wait)
-            
 
             curr_time = float(datetime.now().timestamp())
             inactive = list()
@@ -351,7 +365,7 @@ class Node:
                     if client in value["clients"]:
                         self.tree[content]["clients"].remove(client)
 
-                        self.logger.info(f"Pruning Service: Client {client} was removed from tree")
+                        self.logger.info(f"Pruning Service: {client} removed from tree")
 
                         if len(self.tree[content]["clients"]) == 0:
                             to_remove.append(content)
@@ -368,10 +382,8 @@ class Node:
         try:
             data_socket.bind(("", port))
 
-            self.logger.info(f"Streaming Service: Receiving RTP Packets")
-
             while True:
-                data, _ = data_socket.recvfrom(20480)
+                data, address = data_socket.recvfrom(20480)
 
                 self.lock.acquire()
 

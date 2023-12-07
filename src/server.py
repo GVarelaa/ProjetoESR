@@ -21,9 +21,9 @@ class Server:
         self.events = dict()
 
         if debug_mode:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
         else:
-            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+            logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
         self.logger.info(f"Streaming service listening on port {self.control_socket.getsockname()[1]}")
 
@@ -49,7 +49,7 @@ class Server:
                 self.control_socket.sendto(msg.serialize(), addr) # O ficheiro não está nas streams
         
         elif msg.type == ControlPacket.LEAVE and msg.response == 0:
-            self.logger.info(f"Control Service: Leave request received from {addr[0]}")
+            self.logger.info(f"Control Service: Leave received from {addr[0]}")
             self.logger.debug(f"Message received: {msg}")
 
             filename = msg.contents[0]
@@ -72,9 +72,6 @@ class Server:
                 msg, addr = self.control_socket.recvfrom(1024)
                 msg = ControlPacket.deserialize(msg)
 
-                self.logger.info(f"Control Service: Message received from {addr[0]}")
-                self.logger.debug(f"Message received: {msg}")
-                
                 threading.Thread(target=self.control_worker, args=(addr, msg,)).start()
 
         finally:
