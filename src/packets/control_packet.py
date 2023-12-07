@@ -1,5 +1,6 @@
 import io
 import struct
+from bitstring import BitArray, ConstBitStream
 
 class ControlPacket:
     NEIGHBOURS = 0
@@ -52,24 +53,37 @@ class ControlPacket:
         # Type - 1 byte
         byte_array += self.type.to_bytes(1, 'big')
 
-        # Response - 1 byte
-        byte_array += self.response.to_bytes(1, 'big')
+        # Flags - 1 byte
+        flags = BitArray()
 
-        # nack - 1 byte
-        byte_array += self.nack.to_bytes(1, 'big')
+        # Response - 1 bit
+        flags.append(BitArray(uint=self.response, length=1))
 
-        # alive - 1 byte
-        byte_array += self.alive.to_bytes(1, 'big')
+        # NACK - 1 bit
+        flags.append(BitArray(uint=self.nack, length=1))
 
-        # HasPort - 1 byte
+        # Alive - 1 bit
+        flags.append(BitArray(uint=self.alive, length=1))
+
+        # HasPort - 1 bit
         if self.port is not None:
             self.has_port = 1
-        byte_array += self.has_port.to_bytes(1, 'big')
+        flags.append(BitArray(uint=self.has_port, length=1))
 
+        # HasFrame - 1 bit
         if self.frame_number is not None:
             self.has_frame = 1
-        byte_array += self.has_frame.to_bytes(1, 'big')
+        flags.append(BitArray(uint=self.has_frame, length=1))
 
+        flags.append(BitArray(uint=0, length=3)) # Completar o byte
+
+        byte_array += flags.bytes
+
+        # Timestamp - 8 bytes
+        byte_array += struct.pack('>d', self.timestamp)
+
+        
+        # Payload
         # Port - 2 bytes
         if self.has_port == 1:
             byte_array += self.port.to_bytes(2, 'big')
@@ -78,36 +92,32 @@ class ControlPacket:
         if self.has_frame == 1:
             byte_array += self.frame_number.to_bytes(4, 'big')
 
-        # Timestamp - 8 bytes
-        byte_array += struct.pack('>d', self.timestamp)
-
         # Number of hops - 1 byte
         byte_array += len(self.hops).to_bytes(1, 'big')
 
-        # Number of servers - 1 byte
-        byte_array += len(self.servers).to_bytes(1, 'big')
-
-        # Number of neighbours - 1 byte
-        byte_array += len(self.neighbours).to_bytes(1, 'big')
-
-        # Number of contents - 1 byte
-        byte_array += len(self.contents).to_bytes(1, 'big')
-        
-        # Payload
         # Hops
         for hop in self.hops:
             # IP - 4 bytes
             byte_array += self.serialize_ip(hop)
+
+        # Number of servers - 1 byte
+        byte_array += len(self.servers).to_bytes(1, 'big')
 
         # Servers
         for server in self.servers:
             # IP - 4 bytes
             byte_array += self.serialize_ip(server)
 
+        # Number of neighbours - 1 byte
+        byte_array += len(self.neighbours).to_bytes(1, 'big')
+
         # Neighbours
         for neighbour in self.neighbours:
             # IP - 4 bytes
             byte_array += self.serialize_ip(neighbour)
+
+        # Number of contents - 1 byte
+        byte_array += len(self.contents).to_bytes(1, 'big')
 
         # Contents
         for content in self.contents:
@@ -135,11 +145,16 @@ class ControlPacket:
         byte_array = io.BytesIO(bytes)
 
         msg_type = int.from_bytes(byte_array.read(1), byteorder='big')
-        response = int.from_bytes(byte_array.read(1), byteorder='big')
-        nack = int.from_bytes(byte_array.read(1), byteorder='big')
-        alive = int.from_bytes(byte_array.read(1), byteorder='big')
-        has_port = int.from_bytes(byte_array.read(1), byteorder='big')
-        has_number = int.from_bytes(byte_array.read(1), byteorder='big')
+
+        flags = ConstBitStream(byte_array.read(1))
+
+        response = flags.read('uint:1')
+        nack = flags.read('uint:1')
+        alive = flags.read('uint:1')
+        has_port = flags.read('uint:1')
+        has_number = flags.read('uint:1')
+
+        timestamp = struct.unpack('>d', byte_array.read(8))[0]
 
         port = None
         if has_port == 1:
@@ -149,27 +164,24 @@ class ControlPacket:
         if has_number == 1:
             frame_number = int.from_bytes(byte_array.read(4), byteorder='big')
 
-        timestamp = struct.unpack('>d', byte_array.read(8))[0]
-
-        nr_hops = int.from_bytes(byte_array.read(1), byteorder='big')
-        nr_servers = int.from_bytes(byte_array.read(1), byteorder='big')
-        nr_neighbours = int.from_bytes(byte_array.read(1), byteorder='big')
-        nr_contents = int.from_bytes(byte_array.read(1), byteorder='big')
-
         hops = list()
         servers = list()
         neighbours = list()
         contents = list()
-
+    	
+        nr_hops = int.from_bytes(byte_array.read(1), byteorder='big')
         for _ in range(nr_hops):
             hops.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
+        nr_servers = int.from_bytes(byte_array.read(1), byteorder='big')
         for _ in range(nr_servers):
             servers.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
+        nr_neighbours = int.from_bytes(byte_array.read(1), byteorder='big')
         for _ in range(nr_neighbours):
             neighbours.append(ControlPacket.deserialize_ip(byte_array.read(4)))
 
+        nr_contents = int.from_bytes(byte_array.read(1), byteorder='big')
         for _ in range(nr_contents):
             string_len = int.from_bytes(byte_array.read(1), byteorder='big')
             contents.append(byte_array.read(string_len).decode('utf-8'))
