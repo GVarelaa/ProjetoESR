@@ -45,6 +45,8 @@ class RP(Node):
                         self.logger.info("Setup: Neighbours and servers received")
                         self.logger.debug(f"Neighbours: {self.neighbours}")
                         self.logger.debug(f"Servers: {self.servers}")
+
+                        break
                     
                     else:
                         self.logger.info("Setup: Unexpected response received")
@@ -52,7 +54,6 @@ class RP(Node):
                     
                 except socket.timeout:
                     self.logger.info("Setup: Could not receive response to neighbours and servers request")
-                    exit()
 
 
     def get_port(self, content):
@@ -70,6 +71,11 @@ class RP(Node):
 
     def control_worker(self, address, msg):
         # Se tem ciclos
+
+        print("-------------------")
+        print("recebi")
+        print(address[0])
+        print(self.tree)
         if address[0] in msg.hops:
             return
         
@@ -179,56 +185,71 @@ class RP(Node):
             self.lock.acquire()
 
             content = msg.contents[0]
-
-            self.tree[content]["clients"].remove(address[0])
-
-            self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
-
-            if len(self.tree[content]["clients"]) == 0:
-                self.tree.pop(content)
-
-                self.servers_lock.acquire()
-                for server, info in self.servers.items():
-                    if info.status and content in info.contents:
-                        self.control_socket.sendto(msg.serialize(), (server, 7777))
-                        self.logger.info(f"Control Service: Leave message sent to {server}")
-                        info.status = False
-                self.servers_lock.release()
-
-            self.lock.release()
-        
-        elif msg.type == ControlPacket.POLLING:
-            if msg.nack == 1:                
-                content = msg.contents[0]
-                
-                self.lock.acquire()
-                
+            if content in self.tree:
                 self.tree[content]["clients"].remove(address[0])
+
                 self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
 
                 if len(self.tree[content]["clients"]) == 0:
                     self.tree.pop(content)
+
+                    self.servers_lock.acquire()
+                    for server, info in self.servers.items():
+                        if info.status and content in info.contents:
+                            self.control_socket.sendto(msg.serialize(), (server, 7777))
+                            self.logger.info(f"Control Service: Leave message sent to {server}")
+                            info.status = False
+                    self.servers_lock.release()
+
+            self.lock.release()
+        
+        elif msg.type == ControlPacket.POLLING:
+            self.logger.info(f"Control Service: Polling received from neighbour {address[0]}")
+            self.logger.debug(f"Message received: {msg}")
+            print(msg)
+
+            if msg.alive == 1:
+                self.lock.acquire()
+                self.contacts[address[0]] = float(datetime.now().timestamp())
+                self.lock.release()
+
+            elif msg.nack == 1:                
+                content = msg.contents[0]
+                
+                self.lock.acquire()
+                
+                if address[0] in self.tree[content]["clients"]:
+                    self.tree[content]["clients"].remove(address[0])
+                    self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
+
+                    if len(self.tree[content]["clients"]) == 0:
+                        self.tree.pop(content)
 
                 self.lock.release()
                 
             elif msg.response == 0:
                 self.lock.acquire()
 
-                self.tree[msg.contents[0]]["clients"].add(address[0]) 
+                if msg.contents[0] in self.tree:
+                    self.tree[msg.contents[0]]["clients"].add(address[0]) 
 
-                self.contacts[address[0]] = float(datetime.now().timestamp())
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
 
-                self.logger.info(f"Control Service: Added client {address[0]} to tree")
+                    self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
                 self.lock.release()
 
                 msg.response = 1
                 msg.port = self.ports[msg.contents[0]]
                 self.control_socket.sendto(msg.serialize(), (address[0], 7777))
+        
+        print("acabei")
+        print(self.tree)
+        print("-----------")
        
 
     def pruning_service(self):
-        wait = 3
+        wait = 10
 
         while True:
             time.sleep(wait)
@@ -239,7 +260,7 @@ class RP(Node):
             self.lock.acquire()
            
             for client, last_contact in self.contacts.items():
-                if curr_time - last_contact > 5:
+                if curr_time - last_contact > 15:
                     inactive.append(client)
 
             to_remove = list()
@@ -351,9 +372,9 @@ def main():
         debug_mode = True
 
     if args.f:
-        RP(args.bootstrapper, is_bootstrapper=True, file=args.f, debug_mode=debug_mode)
+        RP(args.b, is_bootstrapper=True, file=args.f, debug_mode=debug_mode)
     elif args.b:
-        RP(args.bootstrapper, debug_mode=debug_mode)
+        RP(args.b, debug_mode=debug_mode)
     else:
         print("Error: Wrong arguments")
         exit()

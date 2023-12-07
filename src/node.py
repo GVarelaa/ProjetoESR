@@ -82,6 +82,11 @@ class Node:
     @abstractmethod
     def control_worker(self, address, msg):
         # Se tem ciclos
+        print("-------------------")
+        print("recebi")
+        print(address[0])
+        print(self.tree)
+
         if msg.response == 0:
             msg.hops.append(address[0])
         
@@ -211,7 +216,15 @@ class Node:
             self.logger.info(f"Control Service: Polling received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
 
-            if msg.nack == 1:
+            if msg.contents[0] in self.tree and "parent" in self.tree[msg.contents[0]]:
+                self.control_socket.sendto(ControlPacket(ControlPacket.POLLING, alive=1, contents=msg.contents).serialize(), (self.tree[msg.contents[0]]["parent"], 7777))
+
+            if msg.alive == 1:
+                self.lock.acquire()
+                self.contacts[address[0]] = float(datetime.now().timestamp())
+                self.lock.release()
+
+            elif msg.nack == 1:
                 content = msg.contents[0]
                 
                 self.lock.acquire()
@@ -280,7 +293,7 @@ class Node:
 
                 self.lock.acquire()
                 
-                if "timestamp" not in self.tree[content] or self.tree[content]["timestamp"] < msg.timestamp:
+                if content in self.tree and ("timestamp" not in self.tree[content] or self.tree[content]["timestamp"] < msg.timestamp):
                     self.tree[content]["parent"] = address[0]
                     self.tree[content]["timestamp"] = msg.timestamp
 
@@ -288,15 +301,17 @@ class Node:
                         self.control_socket.sendto(msg.serialize(), (client, 7777))
                         self.logger.info(f"Control Service: Subscription confirmation sent to neighbour {client}")
 
-                    self.lock.release()
-
                 else:
                     nack = ControlPacket(ControlPacket.POLLING, nack=1, timestamp=msg.timestamp, contents=msg.contents)
                     self.control_socket.sendto(nack.serialize(), (address[0], 7777))
                     
                     self.logger.info(f"Control Service: NACK sent to {address[0]}")
                     
-                    self.lock.release()
+                self.lock.release()
+
+        print("acabei")
+        print(self.tree)
+        print("-----------")
 
 
     def control_service(self):
@@ -319,6 +334,7 @@ class Node:
 
         while True:
             time.sleep(wait)
+            
 
             curr_time = float(datetime.now().timestamp())
             inactive = list()
