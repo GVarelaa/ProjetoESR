@@ -77,23 +77,6 @@ class Node:
                 exit()
     
 
-    @abstractmethod
-    def insert_tree(self, msg, neighbour):
-        client = msg.hops[0]
-        content = msg.contents[0]
-        seqnum = msg.seqnum
-
-        self.lock.acquire()
-
-        if content not in self.tree:
-            self.tree[content] = dict()
-
-        self.tree[content][client] = NodeInfo(neighbour, seqnum)
-
-        self.logger.info(f"Control Service: Added client {client} to tree")
-
-        self.lock.release()
-
 
     @abstractmethod
     def control_worker(self, address, msg):
@@ -159,8 +142,8 @@ class Node:
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
-                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                    for neighbour in self.neighbours: 
+                        if neighbour != address[0]:
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
                             self.logger.info(f"Control Service: Subscription message sent to neighbour {neighbour}")
@@ -265,8 +248,8 @@ class Node:
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
-                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                    for neighbour in self.neighbours: 
+                        if neighbour != address[0]: 
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
                             self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")
@@ -277,8 +260,8 @@ class Node:
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
-                    for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
-                        if neighbour != address[0]: # Se o vizinho não for o que enviou a mensagem
+                    for neighbour in self.neighbours:
+                        if neighbour != address[0]: 
                             self.control_socket.sendto(msg.serialize(), (neighbour, 7777))
 
                             self.logger.info(f"Control Service: Polling message sent to neighbour {neighbour}")

@@ -9,14 +9,13 @@ class ControlPacket:
     MEASURE = 4
     POLLING = 5
 
-    def __init__(self, msg_type, response=0, nack=0, seqnum=0, port=None, frame_number=None, timestamp=0, hops=list(), neighbours=list(), contents=list(), servers=list()):
+    def __init__(self, msg_type, response=0, nack=0, port=None, frame_number=None, timestamp=0, hops=list(), neighbours=list(), contents=list(), servers=list()):
         # Header
         self.type = msg_type
         self.response = response # Alterar para bit
         self.nack = nack # Alterar para bit
         self.has_port = 0 # 1 bit para dizer se tem ou não porta na mensagem
         self.has_frame = 0 # 1 bit para dizer se tem ou não frame nr na mensagem
-        self.seqnum = seqnum
         self.port = port
         self.frame_number = frame_number
         self.timestamp = timestamp
@@ -28,11 +27,11 @@ class ControlPacket:
 
     
     def __str__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} |Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} |Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def __repr__(self):
-        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | SeqNum: {self.seqnum} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
+        return f"Type: {self.type} | Response: {self.response} | NACK: {self.nack} | Frame Number: {self.frame_number} | Timestamp: {self.timestamp} | Hops: {self.hops} | Servers: {self.servers} | Neighbours: {self.neighbours} | Contents: {self.contents}"
 
 
     def serialize_ip(self, ip):
@@ -66,9 +65,6 @@ class ControlPacket:
         if self.frame_number is not None:
             self.has_frame = 1
         byte_array += self.has_frame.to_bytes(1, 'big')
-
-        # Sequence Number - 1 byte
-        byte_array += self.seqnum.to_bytes(4, 'big')
 
         # Port - 2 bytes
         if self.has_port == 1:
@@ -139,7 +135,6 @@ class ControlPacket:
         nack = int.from_bytes(byte_array.read(1), byteorder='big')
         has_port = int.from_bytes(byte_array.read(1), byteorder='big')
         has_number = int.from_bytes(byte_array.read(1), byteorder='big')
-        seqnum = int.from_bytes(byte_array.read(4), byteorder='big')
 
         port = None
         if has_port == 1:
@@ -174,5 +169,5 @@ class ControlPacket:
             string_len = int.from_bytes(byte_array.read(1), byteorder='big')
             contents.append(byte_array.read(string_len).decode('utf-8'))
         
-        return ControlPacket(msg_type, response=response, nack=nack, seqnum=seqnum, port=port, frame_number=frame_number, timestamp=timestamp, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
+        return ControlPacket(msg_type, response=response, nack=nack, port=port, frame_number=frame_number, timestamp=timestamp, hops=hops, servers=servers, neighbours=neighbours, contents=contents)
     

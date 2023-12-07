@@ -50,7 +50,6 @@ class Client:
         self.request_sent = -1
         self.teardown_acked = 0
         self.frame_nr = 0
-        self.seqnum = 0
         self.play_movie()
 
 
@@ -107,10 +106,8 @@ class Client:
         """Play button handler."""
         self.stop_event.clear()
 
-        msg = ControlPacket(ControlPacket.PLAY, seqnum=self.seqnum, contents=[self.videofile])
+        msg = ControlPacket(ControlPacket.PLAY, contents=[self.videofile])
         self.control_socket.sendto(msg.serialize(), (self.neighbour, 7777))
-
-        self.seqnum += 1
 
         self.logger.debug(f"Message sent: {msg}")
     
@@ -225,8 +222,6 @@ class Client:
 
                     self.logger.info(f"Polling Service: Polling message sent to neighbour {self.neighbour}")
                     self.logger.debug(f"Message sent: {msg}")
-
-                    self.seqnum += 1
         
         finally:
             self.control_socket.close()
