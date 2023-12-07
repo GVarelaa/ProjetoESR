@@ -54,42 +54,38 @@ class Node:
                     self.neighbours = value["neighbours"]
 
         else:
-            self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
-            self.logger.info("Setup: Asked for neighbours")
+            self.control_socket.settimeout(2)
+            while True:
+                self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+                self.logger.info("Setup: Asked for neighbours")
 
-            try:
-                self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+                try:
+                    data, _ = self.control_socket.recvfrom(1024)
+                    msg = ControlPacket.deserialize(data)
 
-                data, _ = self.control_socket.recvfrom(1024)
-                msg = ControlPacket.deserialize(data)
+                    if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                        self.neighbours = msg.neighbours
 
-                if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
-                    self.neighbours = msg.neighbours
-                    self.logger.info("Setup: Neighbours received")
-                    self.logger.debug(f"Neighbours: {self.neighbours}")
-                
-                else:
-                    self.logger.info("Setup: Unexpected response received")
-                    exit() # É este o comportamento que queremos ?
-                
-            except socket.timeout:
-                self.logger.info("Setup: Could not receive response to neighbours request")
-                exit()
-    
+                        self.logger.info("Setup: Neighbours received")
+                        self.logger.debug(f"Neighbours: {self.neighbours}")
+
+                        break
+                    
+                    else:
+                        self.logger.info("Setup: Unexpected response received")
+                        exit() #
+                    
+                except socket.timeout:
+                    self.logger.info("Setup: Could not receive response to neighbours request")
 
 
     @abstractmethod
     def control_worker(self, address, msg):
         # Se tem ciclos
-        print("-------------------")
-        print("recebi")
-        print(address[0])
-        print(self.tree)
-        
         if msg.response == 0:
             msg.hops.append(address[0])
         
-        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
+        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS:
             neighbours = list()
             servers = list()
 
@@ -220,7 +216,6 @@ class Node:
                 
                 self.lock.acquire()
                 
-                #if self.tree[content]["timestamp"] == msg.timestamp:
                 self.tree[content]["clients"].remove(address[0])
 
                 self.logger.info(f"Control Service: Client {address[0]} removed from tree due to NACK")
@@ -303,11 +298,6 @@ class Node:
                     
                     self.lock.release()
 
-        
-        print("acabei")
-        print(self.tree)
-        print("-----------")
-
 
     def control_service(self):
         try:
@@ -322,7 +312,8 @@ class Node:
         finally:
             self.control_socket.close()
 
-    
+
+    @abstractmethod
     def pruning_service(self):
         wait = 3
 
@@ -391,8 +382,8 @@ class Node:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-bootstrapper", help="bootstrapper ip")
-    parser.add_argument("-file", help="bootstrapper file")
+    parser.add_argument("-b", help="bootstrapper ip")
+    parser.add_argument("-f", help="bootstrapper file")
     parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
@@ -401,11 +392,11 @@ def main():
     if args.d:
         debug_mode = True
 
-    if args.file:
-        Node(args.bootstrapper, is_bootstrapper=True, file=args.file, debug_mode=debug_mode)
+    if args.f:
+        Node(args.b, is_bootstrapper=True, file=args.f, debug_mode=debug_mode)
         
-    elif args.bootstrapper:
-        Node(args.bootstrapper, debug_mode=debug_mode)
+    elif args.b:
+        Node(args.b, debug_mode=debug_mode)
     else:
         print("Error: Wrong arguments")
         exit()

@@ -229,8 +229,8 @@ class Client:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-bootstrapper", help="bootstrapper ip")
-    parser.add_argument("-videofile", help="filename")
+    parser.add_argument("-b", help="bootstrapper ip")
+    parser.add_argument("-f", help="filename")
     parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
@@ -239,9 +239,9 @@ def main():
     if args.d:
         debug_mode = True
 
-    if args.bootstrapper and args.videofile:
+    if args.b and args.f:
         root = Tk()
-        app = Client(root, args.bootstrapper, args.videofile, debug_mode=debug_mode)
+        app = Client(root, args.b, args.f, debug_mode=debug_mode)
         app.master.title("Client")	
         root.mainloop()
         exit()

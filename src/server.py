@@ -59,14 +59,11 @@ class Server:
 
 
         elif msg.type == ControlPacket.STATUS and msg.response == 0:
-            actual_timestamp = float(datetime.now().timestamp())
-            
             msg = ControlPacket(ControlPacket.STATUS, response=1, contents=list(self.videostreams.keys()))
             self.control_socket.sendto(msg.serialize(), addr)
 
             self.logger.info(f"Control Service: Metrics sent to {addr[0]}")
             self.logger.debug(f"Message sent: {msg}")
-
 
 
     def control_service(self):

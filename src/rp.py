@@ -27,32 +27,32 @@ class RP(Node):
                     self.neighbours = value["neighbours"]
         
         else:
-            self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
-            self.logger.info("Setup: Asked for neighbours and servers")
+            self.control_socket.settimeout(2)
+            while True:
+                self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+                self.logger.info("Setup: Asked for neighbours and servers")
 
-            try:
-                self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+                try:
+                    data, _ = self.control_socket.recvfrom(1024)
+                    msg = ControlPacket.deserialize(data)
 
-                data, _ = self.control_socket.recvfrom(1024)
-                msg = ControlPacket.deserialize(data)
+                    if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                        self.neighbours = msg.neighbours
 
-                if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
-                    self.neighbours = msg.neighbours
-
-                    for server in msg.servers:
-                        self.servers[server] = ServerInfo()
+                        for server in msg.servers:
+                            self.servers[server] = ServerInfo()
+                        
+                        self.logger.info("Setup: Neighbours and servers received")
+                        self.logger.debug(f"Neighbours: {self.neighbours}")
+                        self.logger.debug(f"Servers: {self.servers}")
                     
-                    self.logger.info("Setup: Neighbours and servers received")
-                    self.logger.debug(f"Neighbours: {self.neighbours}")
-                    self.logger.debug(f"Servers: {self.servers}")
-                
-                else:
-                    self.logger.info("Setup: Unexpected response received")
-                    exit() # É este o comportamento que queremos ?
-                
-            except socket.timeout:
-                self.logger.info("Setup: Could not receive response to neighbours and servers request")
-                exit()
+                    else:
+                        self.logger.info("Setup: Unexpected response received")
+                        exit() # É este o comportamento que queremos ?
+                    
+                except socket.timeout:
+                    self.logger.info("Setup: Could not receive response to neighbours and servers request")
+                    exit()
 
 
     def get_port(self, content):
@@ -70,16 +70,13 @@ class RP(Node):
 
     def control_worker(self, address, msg):
         # Se tem ciclos
-        print("-------------------")
-        print("recebi")
-        print(self.tree)
         if address[0] in msg.hops:
             return
         
         if msg.response == 0:
             msg.hops.append(address[0])
 
-        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS and msg.response == 0:
+        if self.is_bootstrapper and msg.type == ControlPacket.NEIGHBOURS:
             neighbours = list()
             servers = list()
 
@@ -228,12 +225,7 @@ class RP(Node):
                 msg.response = 1
                 msg.port = self.ports[msg.contents[0]]
                 self.control_socket.sendto(msg.serialize(), (address[0], 7777))
-
-        print("acabei")
-        print(self.tree)
-        print("-----------")
-
-            
+       
 
     def pruning_service(self):
         wait = 3
@@ -348,8 +340,8 @@ class RP(Node):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-bootstrapper", help="bootstrapper ip")
-    parser.add_argument("-file", help="bootstrapper file")
+    parser.add_argument("-b", help="bootstrapper ip")
+    parser.add_argument("-f", help="bootstrapper file")
     parser.add_argument("-d", action="store_true", help="activate debug mode")
     args = parser.parse_args()
 
@@ -358,9 +350,9 @@ def main():
     if args.d:
         debug_mode = True
 
-    if args.file:
-        RP(args.bootstrapper, is_bootstrapper=True, file=args.file, debug_mode=debug_mode)
-    elif args.bootstrapper:
+    if args.f:
+        RP(args.bootstrapper, is_bootstrapper=True, file=args.f, debug_mode=debug_mode)
+    elif args.b:
         RP(args.bootstrapper, debug_mode=debug_mode)
     else:
         print("Error: Wrong arguments")
