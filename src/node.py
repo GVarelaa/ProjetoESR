@@ -7,7 +7,6 @@ import logging
 import errno
 from datetime import datetime
 from packets.control_packet import ControlPacket
-from utils.node_info import NodeInfo
 from abc import abstractmethod
 from math import inf
 
@@ -20,14 +19,9 @@ class Node:
 
         self.neighbours = list()
 
-        self.streams = dict() # Dicionário -> Conteudo : (Porta, Frame Number)
-
-
-        self.tree = dict() # {conteudo -> {cliente -> best nodeInfo } }
         self.lock = threading.Lock()
-
+        self.tree = dict() 
         self.contacts = dict() # Guarda o timestamp do último contacto com cada cliente para o pruning
-        self.contacts_lock = threading.Lock()
         
         self.ports = dict() # estrutura para saber as portas para cada conteudo
 
@@ -48,7 +42,7 @@ class Node:
         self.setup() # Request neighbours
 
         # Services
-        #threading.Thread(target=self.pruning_service, args=()).start()
+        threading.Thread(target=self.pruning_service, args=()).start()
         threading.Thread(target=self.control_service, args=()).start()
         
 
@@ -109,7 +103,6 @@ class Node:
         print(address[0])
         print(self.tree)
         
-
         if msg.response == 0:
             msg.hops.append(address[0])
         
@@ -153,10 +146,6 @@ class Node:
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
-                #self.contacts_lock.acquire()
-                #self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
-                #self.contacts_lock.release()   
-
                 self.lock.acquire()
                 
                 content = msg.contents[0]
@@ -165,6 +154,8 @@ class Node:
                     self.tree[content]["frame"] = 0
                     self.tree[content]["clients"] = set()
                     self.tree[content]["clients"].add(address[0])
+
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -177,6 +168,8 @@ class Node:
 
                 else:
                     self.tree[content]["clients"].add(address[0])
+
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
                     
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -214,7 +207,6 @@ class Node:
                     
                     self.lock.release()
 
-        
         elif msg.type == ControlPacket.LEAVE:
             self.logger.info(f"Control Service: Leave message received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
@@ -268,6 +260,8 @@ class Node:
                     self.tree[content]["frame"] = 0
                     self.tree[content]["clients"] = set()
                     self.tree[content]["clients"].add(address[0])
+                    
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -279,6 +273,8 @@ class Node:
                             self.logger.debug(f"Message sent: {msg}")
 
                 elif content in self.tree and len(self.tree[content]["clients"]) == 1 and address[0] in self.tree[content]["clients"]:
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
+
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
                     for neighbour in self.neighbours: # Fazer isto sem ser sequencial (cuidado ter um socket para cada neighbour)
@@ -290,6 +286,8 @@ class Node:
 
                 else:
                     self.tree[content]["clients"].add(address[0])
+
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
                     
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -349,27 +347,27 @@ class Node:
             time.sleep(wait)
 
             curr_time = float(datetime.now().timestamp())
-            to_remove = list()
-
-            self.contacts_lock.acquire()
-
-            for client, last_contact in self.contacts.items():
-                if curr_time - last_contact > 1:
-                    to_remove.append(client)
-
-            self.contacts_lock.release()
+            inactive = list()
 
             self.lock.acquire()
+           
+            for client, last_contact in self.contacts.items():
+                if curr_time - last_contact > 5:
+                    inactive.append(client)
 
-            for client in to_remove:
-                for content, clients in self.tree.items():
-                    if client in clients:
-                        self.tree[content].pop(client)
+            to_remove = list()
+            for client in inactive:
+                for content, value in self.tree.items():
+                    if client in value["clients"]:
+                        self.tree[content]["clients"].remove(client)
 
                         self.logger.info(f"Pruning Service: Client {client} was removed from tree")
 
-                        if len(list(self.tree[content].keys())) == 0:
-                            self.streams.pop(content)
+                        if len(self.tree[content]["clients"]) == 0:
+                            to_remove.append(content)
+            
+            for content in to_remove:
+                self.tree.pop(content)
             
             self.lock.release()
 

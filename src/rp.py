@@ -5,7 +5,6 @@ import socket
 from datetime import datetime
 from node import Node
 from packets.control_packet import ControlPacket
-from utils.node_info import NodeInfo
 from utils.server_info import ServerInfo
 
 class RP(Node):
@@ -145,9 +144,6 @@ class RP(Node):
                 self.logger.info(f"Control Service: Subscription message received from neighbour {address[0]}")
                 self.logger.debug(f"Message received: {msg}")
 
-                #self.contacts_lock.acquire()
-                #self.contacts[msg.hops[0]] = float(datetime.now().timestamp())
-                #self.contacts_lock.release()
 
                 self.lock.acquire()
 
@@ -159,6 +155,8 @@ class RP(Node):
                     self.tree[content]["frame"] = 0
                     self.tree[content]["clients"] = set()
                     self.tree[content]["clients"].add(address[0]) #[address[0]] = NodeInfo(neighbour, seqnum)
+
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
 
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
@@ -194,6 +192,9 @@ class RP(Node):
 
                 else:
                     self.tree[content]["clients"].add(address[0])
+
+                    self.contacts[address[0]] = float(datetime.now().timestamp())
+
                     self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
                     msg.response = 1
@@ -246,6 +247,9 @@ class RP(Node):
                 self.lock.acquire()
 
                 self.tree[msg.contents[0]]["clients"].add(address[0]) 
+
+                self.contacts[address[0]] = float(datetime.now().timestamp())
+
                 self.logger.info(f"Control Service: Added client {address[0]} to tree")
 
                 self.lock.release()
@@ -267,37 +271,38 @@ class RP(Node):
             time.sleep(wait)
 
             curr_time = float(datetime.now().timestamp())
-            to_remove = list()
-
-            self.contacts_lock.acquire()
-
-            for client, last_contact in self.contacts.items():
-                if curr_time - last_contact > 1:
-                    to_remove.append(client)
-
-            self.contacts_lock.release()
+            inactive = list()
 
             self.lock.acquire()
+           
+            for client, last_contact in self.contacts.items():
+                if curr_time - last_contact > 5:
+                    inactive.append(client)
 
-            for client in to_remove:
-                for content, clients in self.tree.items():
-                    if client in clients:
-                        self.tree[content].pop(client)
+            to_remove = list()
+            for client in inactive:
+                for content, value in self.tree.items():
+                    if client in value["clients"]:
+                        self.tree[content]["clients"].remove(client)
 
                         self.logger.info(f"Pruning Service: Client {client} was removed from tree")
 
-                        if len(list(self.tree[content].keys())) == 0:
-                            self.streams.pop(content)
+                        if len(self.tree[content]["clients"]) == 0:
+                            to_remove.append(content)
+            
+            for content in to_remove:
+                self.tree.pop(content)
+
+                self.servers_lock.acquire()
                             
-                            self.servers_lock.acquire()
-                            
-                            for server, info in self.servers.items():
-                                if info.status and content in info.contents:
-                                    self.control_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[content]).serialize(), (server, 7777))
-                                    self.logger.info(f"Control Service: Leave message sent to {server}")
-                                    info.status = False
-                            
-                            self.servers_lock.release()
+                for server, info in self.servers.items():
+                    if info.status and content in info.contents:
+                        self.control_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[content]).serialize(), (server, 7777))
+                        info.status = False
+
+                        self.logger.info(f"Control Service: Leave message sent to {server}")
+                
+                self.servers_lock.release()
             
             self.lock.release()
     
