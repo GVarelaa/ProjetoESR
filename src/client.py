@@ -79,29 +79,29 @@ class Client:
 
 
     def setup(self):
-        self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+        self.control_socket.settimeout(5) 
+        while True:
+            self.control_socket.sendto(ControlPacket(ControlPacket.NEIGHBOURS).serialize(), self.bootstrapper)
+            self.logger.info("Setup: Asked for neighbours")
 
-        self.logger.info("Setup: Asked for neighbours")
+            try:
+                data, _ = self.control_socket.recvfrom(1024)
+                msg = ControlPacket.deserialize(data)
 
-        try:
-            self.control_socket.settimeout(5) # 5 segundos? perguntar ao lost
+                if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
+                    self.neighbour = msg.neighbours[0]
+                    self.logger.info("Setup: Neighbours received")
+                    self.logger.debug(f"Neighbours: {self.neighbour}")
 
-            data, _ = self.control_socket.recvfrom(1024)
-            msg = ControlPacket.deserialize(data)
+                    break
+                else:
+                    self.logger.info("Setup: Unexpected response received")
+                    exit() # É este o comportamento que queremos ?
+                
+            except socket.timeout:
+                self.logger.info("Setup: Could not receive response to neighbours request")
 
-            if msg.type == ControlPacket.NEIGHBOURS and msg.response == 1:
-                self.neighbour = msg.neighbours[0]
-                self.logger.info("Setup: Neighbours received")
-                self.logger.debug(f"Neighbours: {self.neighbour}")
-            
-            else:
-                self.logger.info("Setup: Unexpected response received")
-                exit() # É este o comportamento que queremos ?
-            
-        except socket.timeout:
-            self.logger.info("Setup: Could not receive response to neighbours request")
-            exit()
-
+        self.control_socket.settimeout(None)
 
     def play_movie(self):
         """Play button handler."""

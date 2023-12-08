@@ -23,8 +23,11 @@ class RP(Node):
     def setup(self):
         if self.is_bootstrapper:
             for key, value in self.nodes["nodes"].items():
-                if self.bootstrapper in value["interfaces"]: # é esse o servidor
+                if self.bootstrapper[0] in value["interfaces"]: # é esse o servidor
                     self.neighbours = value["neighbours"]
+            
+            for server in self.nodes["servers"]:
+                self.servers[server] = ServerInfo()
         
         else:
             self.control_socket.settimeout(2)
@@ -91,7 +94,7 @@ class RP(Node):
             msg = ControlPacket(ControlPacket.NEIGHBOURS, response=1, servers=servers, neighbours=neighbours)
             self.control_socket.sendto(msg.serialize(), address)
             
-            self.logger.info(f"Control Service: Message sent to {address[0]}")
+            self.logger.info(f"Control Service: Neighbours sent to {address[0]}")
             self.logger.debug(f"Message: {msg}")
         
         elif msg.type == ControlPacket.PLAY:
@@ -305,10 +308,10 @@ class RP(Node):
         tracking_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         tracking_socket.bind(("", 5000))
         
-        delay = 2
+        delay = 3
         tracking_socket.settimeout(delay)
 
-        wait = 1
+        wait = 2
         while True:
             self.logger.info(f"Tracking Service: Monitorization messages sent")
             
@@ -354,10 +357,18 @@ class RP(Node):
                         else:
                             best_server = (server, info.metric)
                 
-                if streaming_server is not None and best_server != streaming_server:
-                    tracking_socket.sendto(ControlPacket(ControlPacket.LEAVE, contents=[stream]).serialize(), (streaming_server, 7777))
+                if streaming_server is not None and best_server[0] != streaming_server:
+                    msg = ControlPacket(ControlPacket.LEAVE, contents=[stream])
+                    tracking_socket.sendto(msg.serialize(), (streaming_server, 7777))
 
-                    tracking_socket.sendto(ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.tree[stream]["frame"], contents=[stream]).serialize(), (best_server[0], 7777))
+                    self.logger.info(f"Tracking Service: Leave message sent to {streaming_server}")
+                    self.logger.debug(f"Message sent: {msg}")
+
+                    msg = ControlPacket(ControlPacket.PLAY, port=self.ports[stream], frame_number=self.tree[stream]["frame"], contents=[stream])
+                    tracking_socket.sendto(msg.serialize(), (best_server[0], 7777))
+
+                    self.logger.info(f"Tracking Service: Streaming request sent to {best_server[0]}")
+                    self.logger.debug(f"Message sent: {msg}")
 
                     self.servers[streaming_server].status = False
                     self.servers[best_server[0]].status = True
