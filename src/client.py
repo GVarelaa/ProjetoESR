@@ -36,7 +36,6 @@ class Client:
         else:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
-        self.logger.info("Control service listening on port 7777 and streaming service on port 7778")
 
         self.setup() # Request neighbours
 

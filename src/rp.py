@@ -213,7 +213,6 @@ class RP(Node):
         elif msg.type == ControlPacket.POLLING:
             self.logger.info(f"Control Service: Polling received from neighbour {address[0]}")
             self.logger.debug(f"Message received: {msg}")
-            print(msg)
 
             if msg.alive == 1:
                 self.lock.acquire()
@@ -262,7 +261,7 @@ class RP(Node):
        
 
     def pruning_service(self):
-        wait = 10
+        wait = 3
 
         while True:
             time.sleep(wait)
@@ -273,7 +272,7 @@ class RP(Node):
             self.lock.acquire()
            
             for client, last_contact in self.contacts.items():
-                if curr_time - last_contact > 15:
+                if curr_time - last_contact > 5:
                     inactive.append(client)
 
             to_remove = list()

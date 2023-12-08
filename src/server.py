@@ -25,7 +25,6 @@ class Server:
         else:
             logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
         self.logger = logging.getLogger()
-        self.logger.info(f"Streaming service listening on port {self.control_socket.getsockname()[1]}")
 
         self.control_service()
 
